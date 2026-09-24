@@ -11,6 +11,20 @@ const SUPABASE_ANON_KEY = 'sb_publishable_ZwwwsHnjEWNbe2CnDKsTSA_8ljXZlOG';
 const STORAGE_BUCKET = 'card-images';
 const CREATURE_TYPES = ['monster', 'mostrissimo'];
 const FACTION_CODES = ['CHI', 'INF', 'PES', 'BUL', 'GRO', 'CLO', 'IND'];
+const RARITY_LABELS = {
+    common: 'Comune',
+    uncommon: 'Non comune',
+    rare: 'Rara',
+    indrazzi: 'Indrazzi'
+};
+const CARD_TYPE_LABELS = {
+    monster: 'MOSTRO',
+    mostrissimo: 'MOSTRISSIMO',
+    sorcery: 'STREGONERIA',
+    instant: 'ISTANTANEO',
+    terraforma: 'TERRAFORMA',
+    aura: 'AURA'
+};
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
@@ -36,6 +50,18 @@ function getFactionCode(factionId) {
     return FACTION_CODES[Number(factionId) - 1] || 'IND';
 }
 
+function getFactionClass(factionId) {
+    return `faction-${getFactionCode(factionId).toLowerCase()}`;
+}
+
+function getCardTypeLabel(type) {
+    return CARD_TYPE_LABELS[type] || String(type || 'TIPO').toUpperCase();
+}
+
+function getRarityLabel(rarity) {
+    return RARITY_LABELS[rarity] || 'Comune';
+}
+
 function showMessage(message, type = 'success') {
     const element = $('form-message');
     if (!element) return;
@@ -51,15 +77,71 @@ function setStatsVisibility(type = $('card-type')?.value || '') {
     }
 }
 
+function setMostrissimoFields(type = $('card-type')?.value || '') {
+    const isMostrissimo = type === 'mostrissimo';
+    const manaGroup = $('mana-group');
+    const sacrificeGroup = $('sacrifice-group');
+    const manaInput = $('mana-cost');
+    const sacrificeInput = $('sacrifice-cost');
+
+    if (manaGroup) manaGroup.style.display = isMostrissimo ? 'none' : 'block';
+    if (sacrificeGroup) sacrificeGroup.style.display = isMostrissimo ? 'block' : 'none';
+    if (manaInput) manaInput.required = !isMostrissimo;
+    if (sacrificeInput) sacrificeInput.required = isMostrissimo;
+}
+
+function synchronizeIndrazziRarity() {
+    const factionId = Number($('faction')?.value);
+    const rarity = $('rarity');
+    if (!rarity) return;
+
+    if (factionId === 7) {
+        rarity.value = 'indrazzi';
+        rarity.disabled = true;
+    } else {
+        if (rarity.value === 'indrazzi') rarity.value = 'rare';
+        rarity.disabled = false;
+    }
+}
+
 function setImageRequired(required) {
     const imageInput = $('card-image');
-    if (imageInput) {
-        imageInput.required = required;
-    }
+    if (imageInput) imageInput.required = required;
 }
 
 function getPreviewImageUrl() {
     return AppState.currentImageUrl || AppState.originalImageUrl || null;
+}
+
+function escapeHtml(value) {
+    return String(value ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+}
+
+function formatRulesText(value) {
+    const escaped = escapeHtml(value || 'Testo effetto...');
+    return escaped
+        .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+        .replace(/\n/g, '<br>');
+}
+
+function applyFactionClasses(cardElement, factionId) {
+    if (!cardElement) return;
+    cardElement.classList.remove(
+        'faction-none',
+        'faction-chi',
+        'faction-inf',
+        'faction-pes',
+        'faction-bul',
+        'faction-gro',
+        'faction-clo',
+        'faction-ind'
+    );
+    cardElement.classList.add(getFactionClass(factionId));
 }
 
 function executeEffectFunction(code, params, label) {
@@ -78,10 +160,7 @@ function executeEffectFunction(code, params, label) {
 
 function buildStoredEffect(effectId, params = {}) {
     const config = getEffectConfig(effectId);
-
-    if (!config) {
-        throw new Error(`Configurazione non trovata per l'effetto "${effectId}".`);
-    }
+    if (!config) throw new Error(`Configurazione non trovata per l'effetto "${effectId}".`);
 
     const runtimeEffect = executeEffectFunction(config.generateJSON, params, 'generateJSON');
 
@@ -97,10 +176,7 @@ function buildStoredEffect(effectId, params = {}) {
 
 function buildEffectText(effectId, params, storedEffect) {
     const config = getEffectConfig(effectId);
-
-    if (!config) {
-        return JSON.stringify(storedEffect);
-    }
+    if (!config) return JSON.stringify(storedEffect);
 
     try {
         const generated = executeEffectFunction(
@@ -127,7 +203,6 @@ function resolveEffectConfig(storedEffect) {
     }
 
     const allEffects = getAllEffects();
-
     const idMatch = allEffects.find((effect) => effect.id === storedEffect.type);
     if (idMatch) return idMatch;
 
@@ -137,7 +212,6 @@ function resolveEffectConfig(storedEffect) {
             (effect.params || []).forEach((param) => {
                 params[param.name] = storedEffect[param.name] ?? param.default;
             });
-
             const generated = executeEffectFunction(effect.generateJSON, params, 'generateJSON');
             return generated?.type === storedEffect.type;
         } catch {
@@ -180,7 +254,6 @@ function renderEffectParams(effectId, values = {}) {
     if (!container) return;
 
     container.innerHTML = '';
-
     const effect = getEffectConfig(effectId);
 
     if (!effect?.params?.length) {
@@ -201,7 +274,6 @@ function renderEffectParams(effectId, values = {}) {
 
         if (param.type === 'select') {
             input = document.createElement('select');
-
             (param.options || []).forEach((optionData) => {
                 const option = document.createElement('option');
                 option.value = optionData.value;
@@ -232,10 +304,8 @@ function addEffectToCard() {
     }
 
     const params = {};
-
     (config.params || []).forEach((param) => {
-        const input = $(`param-${param.name}`);
-        params[param.name] = input?.value ?? param.default;
+        params[param.name] = $(`param-${param.name}`)?.value ?? param.default;
     });
 
     try {
@@ -267,7 +337,7 @@ function renderCardEffects() {
     container.innerHTML = '';
 
     if (!AppState.addedEffects.length) {
-        container.innerHTML = '<p class="no-effects">Nessun effetto aggiunto. Seleziona dalla lista in basso.</p>';
+        container.innerHTML = '<p class="no-effects">Nessun effetto aggiunto. Seleziona un effetto dal menu.</p>';
         return;
     }
 
@@ -290,7 +360,6 @@ function renderCardEffects() {
         removeButton.type = 'button';
         removeButton.className = 'btn-remove';
         removeButton.textContent = 'Rimuovi';
-
         removeButton.addEventListener('click', () => {
             AppState.addedEffects.splice(index, 1);
             renderCardEffects();
@@ -308,7 +377,6 @@ function renderEffectsManagementList() {
     if (!container) return;
 
     container.innerHTML = '';
-
     const effects = getAllEffects();
 
     if (!effects.length) {
@@ -398,10 +466,7 @@ function deleteSelectedEffect() {
     if (!AppState.selectedEffectId) return;
 
     const effect = getEffectConfig(AppState.selectedEffectId);
-
-    if (!effect || !confirm(`Eliminare definitivamente l’effetto "${effect.name}"?`)) {
-        return;
-    }
+    if (!effect || !confirm(`Eliminare definitivamente l’effetto "${effect.name}"?`)) return;
 
     deleteEffectById(AppState.selectedEffectId);
     closeEffectModal();
@@ -475,9 +540,14 @@ function resetEditorState() {
     AppState.isEditing = false;
     AppState.editingCardId = null;
 
+    $('editor-title').textContent = 'Nuova Carta';
+    $('btn-save-card').textContent = '💾 Salva Carta';
     $('card-image').value = '';
     $('image-preview').innerHTML = '<p>Anteprima immagine</p>';
     setImageRequired(true);
+    setStatsVisibility();
+    setMostrissimoFields();
+    synchronizeIndrazziRarity();
     renderCardEffects();
     updatePreview();
 }
@@ -496,7 +566,6 @@ function fillEffectsFromJson(effectJson) {
 
     storedEffects.forEach((storedEffect) => {
         const config = resolveEffectConfig(storedEffect);
-
         if (!config) {
             console.warn('Effetto non riconosciuto e non importato:', storedEffect);
             return;
@@ -545,7 +614,6 @@ function buildEffectPayload() {
         if (!effect.json || typeof effect.json !== 'object' || Array.isArray(effect.json)) {
             throw new Error(`L'effetto "${effect.name}" non ha dati JSON validi.`);
         }
-
         return effect.json;
     });
 
@@ -554,18 +622,21 @@ function buildEffectPayload() {
 
 function collectCardData() {
     const type = $('card-type').value;
-    const automaticText = AppState.addedEffects
-        .map((effect) => effect.text)
-        .filter(Boolean)
-        .join('. ');
+    const factionId = Number($('faction').value);
+    const rarity = factionId === 7 ? 'indrazzi' : $('rarity').value;
+    const automaticText = AppState.addedEffects.map((effect) => effect.text).filter(Boolean).join('. ');
 
     return {
         name: $('card-name').value.trim(),
-        faction_id: Number($('faction').value),
+        faction_id: factionId,
         card_type: type,
-        mana_cost: Number($('mana-cost').value || 0),
+        mana_cost: type === 'mostrissimo' ? 0 : Number($('mana-cost').value || 0),
+        sacrifice_cost: type === 'mostrissimo' ? Number($('sacrifice-cost').value || 0) : 0,
         attack: isCreatureType(type) ? Number($('attack').value || 0) : null,
         hp: isCreatureType(type) ? Number($('hp').value || 0) : null,
+        subtype: $('subtype').value.trim() || null,
+        rarity,
+        flavor_text: $('flavor-text').value.trim() || null,
         effect_text: $('effect-text').value.trim() || automaticText,
         effect_json: buildEffectPayload()
     };
@@ -611,10 +682,7 @@ async function saveCard(event) {
     }
 
     try {
-        const duplicate = findDuplicate(
-            cardData,
-            AppState.isEditing ? AppState.editingCardId : null
-        );
+        const duplicate = findDuplicate(cardData, AppState.isEditing ? AppState.editingCardId : null);
 
         if (duplicate) {
             const confirmed = confirm(
@@ -672,12 +740,8 @@ async function saveCard(event) {
             if (imageUrlError) throw imageUrlError;
         }
 
-        const effectMessage = cardData.effect_json
-            ? ' Effetti strutturati salvati.'
-            : ' Nessun effetto strutturato associato.';
-
         showMessage(
-            `✅ Carta "${savedCard.name}" salvata correttamente.${effectMessage}`,
+            `✅ Carta "${savedCard.name}" salvata correttamente.${cardData.effect_json ? ' Effetti strutturati salvati.' : ''}`,
             'success'
         );
 
@@ -700,9 +764,7 @@ async function loadAllCards() {
         .order('created_at', { ascending: false });
 
     if (error) {
-        if (grid) {
-            grid.innerHTML = `<p>Errore database: ${error.message}</p>`;
-        }
+        if (grid) grid.innerHTML = `<p>Errore database: ${error.message}</p>`;
         return;
     }
 
@@ -718,7 +780,7 @@ function renderCardsGrid(cards) {
 
     cards.forEach((card) => {
         const item = document.createElement('div');
-        item.className = 'card-item';
+        item.className = `card-item ${getFactionClass(card.faction_id)}`;
 
         const name = document.createElement('div');
         name.className = 'card-name';
@@ -726,7 +788,10 @@ function renderCardsGrid(cards) {
 
         const meta = document.createElement('div');
         meta.className = 'card-meta';
-        meta.textContent = `${card.factions?.name || '???'} • ${card.card_type} • ⚡${card.mana_cost}`;
+        const cost = card.card_type === 'mostrissimo'
+            ? `✦${card.sacrifice_cost || 0}`
+            : `⚡${card.mana_cost}`;
+        meta.textContent = `${card.factions?.name || '???'} • ${getCardTypeLabel(card.card_type)} • ${cost}`;
 
         item.append(name, meta);
         item.addEventListener('click', () => selectCard(card));
@@ -755,35 +820,40 @@ function editSelectedCard() {
     AppState.originalImageUrl = card.image_url || null;
     AppState.currentImageUrl = card.image_url || null;
 
+    $('editor-title').textContent = `Modifica: ${card.name}`;
+    $('btn-save-card').textContent = '💾 Salva Modifiche';
     $('card-name').value = card.name || '';
     $('card-type').value = card.card_type || '';
     $('faction').value = card.faction_id || '';
+    $('subtype').value = card.subtype || '';
     $('mana-cost').value = card.mana_cost ?? 0;
+    $('sacrifice-cost').value = card.sacrifice_cost ?? 0;
+    $('rarity').value = card.rarity || (Number(card.faction_id) === 7 ? 'indrazzi' : 'common');
     $('attack').value = card.attack ?? '';
     $('hp').value = card.hp ?? '';
     $('effect-text').value = card.effect_text || '';
+    $('flavor-text').value = card.flavor_text || '';
     $('card-image').value = '';
 
     setStatsVisibility(card.card_type);
+    setMostrissimoFields(card.card_type);
+    synchronizeIndrazziRarity();
     setImageRequired(!AppState.originalImageUrl);
 
     $('image-preview').innerHTML = AppState.originalImageUrl
-        ? `<img src="${AppState.originalImageUrl}" alt="${card.name}">`
+        ? `<img src="${AppState.originalImageUrl}" alt="${escapeHtml(card.name)}">`
         : '<p>Nessuna immagine salvata: seleziona un file.</p>';
 
     fillEffectsFromJson(card.effect_json);
     closeCardModal();
     updatePreview();
 
-    const formSection = document.querySelector('.form-section');
-    if (formSection) {
-        formSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    }
+    document.querySelector('.form-section')?.scrollIntoView({
+        behavior: 'smooth',
+        block: 'start'
+    });
 
-    showMessage(
-        '📝 Modalità modifica attiva. Foto ed effetti esistenti sono stati caricati.',
-        'success'
-    );
+    showMessage('📝 Modalità modifica attiva. Foto, statistiche, effetti e testi sono stati caricati.', 'success');
 }
 
 async function deleteSelectedCard() {
@@ -805,27 +875,51 @@ async function deleteSelectedCard() {
 }
 
 function updatePreview() {
+    const type = $('card-type').value;
+    const factionId = Number($('faction').value);
+    const isMostrissimo = type === 'mostrissimo';
+    const creature = isCreatureType(type);
+    const subtype = $('subtype').value.trim();
+    const rarity = factionId === 7 ? 'indrazzi' : $('rarity').value;
+    const rulesText = $('effect-text').value.trim() || AppState.addedEffects.map((effect) => effect.text).filter(Boolean).join('. ');
+    const flavorText = $('flavor-text').value.trim();
+    const costValue = isMostrissimo
+        ? `✦${$('sacrifice-cost').value || 0}`
+        : `⚡${$('mana-cost').value || 0}`;
+
+    applyFactionClasses($('preview-card'), factionId);
+    applyFactionClasses($('compact-preview-card'), factionId);
+
     $('preview-name').textContent = $('card-name').value || 'Nome Carta';
-    $('preview-type').textContent = $('card-type').value || 'Tipo';
-    $('preview-mana').textContent = `⚡${$('mana-cost').value || 0}`;
+    $('preview-cost').textContent = costValue;
+    $('preview-cost').title = isMostrissimo ? 'Sacrifici richiesti' : 'Costo mana';
+    $('preview-type').textContent = getCardTypeLabel(type);
+    $('preview-subtype').textContent = subtype ? `— ${subtype}` : '';
+    $('preview-effect').innerHTML = formatRulesText(rulesText || 'Testo effetto...');
+    $('preview-flavor').textContent = flavorText;
+    $('preview-flavor').style.display = flavorText ? 'block' : 'none';
+    $('preview-rarity').textContent = getRarityLabel(rarity);
 
-    const generatedEffectText = AppState.addedEffects
-        .map((effect) => effect.text)
-        .filter(Boolean)
-        .join('. ');
-
-    $('preview-effect').textContent = $('effect-text').value || generatedEffectText || 'Testo effetto...';
-
-    const creature = isCreatureType($('card-type').value);
-    $('preview-atk').style.display = creature ? 'inline' : 'none';
-    $('preview-hp').style.display = creature ? 'inline' : 'none';
-    $('preview-atk').textContent = `⚔${$('attack').value || 0}`;
-    $('preview-hp').textContent = `❤${$('hp').value || 0}`;
+    $('preview-atk').style.display = creature ? 'inline-flex' : 'none';
+    $('preview-hp').style.display = creature ? 'inline-flex' : 'none';
+    $('preview-atk').textContent = `⚔ ${$('attack').value || 0}`;
+    $('preview-hp').textContent = `❤ ${$('hp').value || 0}`;
+    $('preview-stats').style.display = creature ? 'flex' : 'none';
 
     const imageUrl = getPreviewImageUrl();
     $('preview-image').innerHTML = imageUrl
         ? `<img src="${imageUrl}" alt="Anteprima carta">`
         : '<span>Immagine</span>';
+
+    $('compact-preview-name').textContent = $('card-name').value || 'Nome Carta';
+    $('compact-preview-cost').textContent = costValue;
+    $('compact-preview-type').textContent = getCardTypeLabel(type);
+    $('compact-preview-atk').textContent = creature ? `⚔ ${$('attack').value || 0}` : '';
+    $('compact-preview-hp').textContent = creature ? `❤ ${$('hp').value || 0}` : '';
+    $('compact-preview-stats').style.display = creature ? 'flex' : 'none';
+    $('compact-preview-image').innerHTML = imageUrl
+        ? `<img src="${imageUrl}" alt="Miniatura carta">`
+        : '🎴';
 }
 
 function filterCards() {
@@ -835,7 +929,9 @@ function filterCards() {
     const filtered = AppState.allCards.filter((card) => {
         const matchesSearch = !search ||
             card.name.toLowerCase().includes(search) ||
-            (card.effect_text || '').toLowerCase().includes(search);
+            (card.effect_text || '').toLowerCase().includes(search) ||
+            (card.flavor_text || '').toLowerCase().includes(search) ||
+            (card.subtype || '').toLowerCase().includes(search);
 
         const matchesFaction = !factionId || card.faction_id === Number(factionId);
         return matchesSearch && matchesFaction;
@@ -849,10 +945,27 @@ function bindEvents() {
 
     $('card-type')?.addEventListener('change', (event) => {
         setStatsVisibility(event.target.value);
+        setMostrissimoFields(event.target.value);
         updatePreview();
     });
 
-    ['card-name', 'faction', 'mana-cost', 'attack', 'hp', 'effect-text'].forEach((id) => {
+    $('faction')?.addEventListener('change', () => {
+        synchronizeIndrazziRarity();
+        updatePreview();
+    });
+
+    $('rarity')?.addEventListener('change', updatePreview);
+
+    [
+        'card-name',
+        'subtype',
+        'mana-cost',
+        'sacrifice-cost',
+        'attack',
+        'hp',
+        'effect-text',
+        'flavor-text'
+    ].forEach((id) => {
         $(id)?.addEventListener('input', updatePreview);
     });
 
@@ -861,7 +974,6 @@ function bindEvents() {
     $('btn-preview')?.addEventListener('click', (event) => {
         event.preventDefault();
         updatePreview();
-
         document.querySelector('.preview-section')?.scrollIntoView({
             behavior: 'smooth',
             block: 'start'
@@ -897,6 +1009,8 @@ document.addEventListener('DOMContentLoaded', () => {
     initializeEffects();
     bindEvents();
     setStatsVisibility();
+    setMostrissimoFields();
+    synchronizeIndrazziRarity();
     setImageRequired(true);
     renderCardEffects();
     updatePreview();
