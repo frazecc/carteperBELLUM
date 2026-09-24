@@ -41,6 +41,7 @@ function getFactionCode(factionId) {
 function showMessage(message, type = 'success') {
     const element = $('form-message');
     if (!element) return;
+
     element.textContent = message;
     element.className = `form-message ${type}`;
 }
@@ -61,6 +62,67 @@ function setImageRequired(required) {
 
 function getPreviewImageUrl() {
     return AppState.currentImageUrl || AppState.originalImageUrl || null;
+}
+
+function buildStoredEffect(effectId, params = {}) {
+    const runtimeEffect = generateEffectJSON(effectId, params);
+
+    if (!runtimeEffect || typeof runtimeEffect !== 'object') {
+        throw new Error(`L'effetto "${effectId}" non ha generato un JSON valido.`);
+    }
+
+    return {
+        effect_id: effectId,
+        ...runtimeEffect
+    };
+}
+
+function resolveEffectConfig(storedEffect) {
+    if (!storedEffect || typeof storedEffect !== 'object') return null;
+
+    if (storedEffect.effect_id) {
+        const byId = getEffectConfig(storedEffect.effect_id);
+        if (byId) return byId;
+    }
+
+    const allEffects = getAllEffects();
+
+    const byType = allEffects.find((effect) => effect.id === storedEffect.type);
+    if (byType) return byType;
+
+    return allEffects.find((effect) => {
+        try {
+            const generated = generateEffectJSON(effect.id, storedEffect);
+            return generated?.type === storedEffect.type;
+        } catch {
+            return false;
+        }
+    }) || null;
+}
+
+function getEffectParamsForEditor(config, storedEffect) {
+    const params = {};
+
+    (config?.params || []).forEach((param) => {
+        if (storedEffect[param.name] !== undefined && storedEffect[param.name] !== null) {
+            params[param.name] = String(storedEffect[param.name]);
+        } else {
+            params[param.name] = String(param.default ?? '');
+        }
+    });
+
+    return params;
+}
+
+function normalizeEffectText(config, params, storedEffect) {
+    try {
+        return generateEffectText(config.id, {
+            ...storedEffect,
+            ...params
+        }) || JSON.stringify(storedEffect);
+    } catch {
+        return JSON.stringify(storedEffect);
+    }
 }
 
 function populateEffectSelector() {
@@ -103,6 +165,7 @@ function renderEffectParams(effectId, values = {}) {
 
         if (param.type === 'select') {
             input = document.createElement('select');
+
             (param.options || []).forEach((optionData) => {
                 const option = document.createElement('option');
                 option.value = optionData.value;
@@ -133,28 +196,31 @@ function addEffectToCard() {
     }
 
     const params = {};
+
     (config.params || []).forEach((param) => {
         const input = $(`param-${param.name}`);
         params[param.name] = input?.value ?? param.default;
     });
 
-    const effectJson = generateEffectJSON(effectId, params);
-    if (!effectJson) {
-        alert('Non è stato possibile generare il JSON dell’effetto.');
-        return;
+    try {
+        const storedEffect = buildStoredEffect(effectId, params);
+
+        AppState.addedEffects.push({
+            id: config.id,
+            name: config.name,
+            params,
+            json: storedEffect,
+            text: normalizeEffectText(config, params, storedEffect)
+        });
+
+        $('effect-type').value = '';
+        $('effect-params').innerHTML = '';
+        renderCardEffects();
+        updatePreview();
+    } catch (error) {
+        console.error('Errore aggiunta effetto:', error);
+        alert(`Errore nell'aggiunta dell'effetto: ${error.message}`);
     }
-
-    AppState.addedEffects.push({
-        id: config.id,
-        name: config.name,
-        params,
-        json: effectJson,
-        text: generateEffectText(effectId, params)
-    });
-
-    $('effect-type').value = '';
-    $('effect-params').innerHTML = '';
-    renderCardEffects();
 }
 
 function renderCardEffects() {
@@ -187,6 +253,7 @@ function renderCardEffects() {
         removeButton.type = 'button';
         removeButton.className = 'btn-remove';
         removeButton.textContent = 'Rimuovi';
+
         removeButton.addEventListener('click', () => {
             AppState.addedEffects.splice(index, 1);
             renderCardEffects();
@@ -376,32 +443,31 @@ function resetEditorState() {
 
 function fillEffectsFromJson(effectJson) {
     AppState.addedEffects = [];
+
     if (!effectJson) {
         renderCardEffects();
         return;
     }
 
-    const rawEffects = Array.isArray(effectJson.effects) ? effectJson.effects : [effectJson];
+    const rawEffects = Array.isArray(effectJson.effects)
+        ? effectJson.effects
+        : [effectJson];
 
-    rawEffects.forEach((json) => {
-        if (!json?.type) return;
+    rawEffects.forEach((storedEffect) => {
+        const config = resolveEffectConfig(storedEffect);
+        if (!config) {
+            console.warn('Effetto non riconosciuto e non importato:', storedEffect);
+            return;
+        }
 
-        const config = getEffectConfig(json.type);
-        if (!config) return;
-
-        const params = {};
-        (config.params || []).forEach((param) => {
-            if (json[param.name] !== undefined) {
-                params[param.name] = String(json[param.name]);
-            }
-        });
+        const params = getEffectParamsForEditor(config, storedEffect);
 
         AppState.addedEffects.push({
             id: config.id,
             name: config.name,
             params,
-            json,
-            text: generateEffectText(config.id, { ...json, ...params })
+            json: storedEffect,
+            text: normalizeEffectText(config, params, storedEffect)
         });
     });
 
@@ -412,6 +478,7 @@ async function uploadImage(cardId, factionId) {
     if (!(AppState.currentImageFile instanceof Blob)) return null;
 
     const path = `${getFactionCode(factionId)}/${cardId}.webp`;
+
     const { error } = await supabase.storage.from(STORAGE_BUCKET).upload(path, AppState.currentImageFile, {
         upsert: true,
         contentType: 'image/webp',
@@ -423,9 +490,23 @@ async function uploadImage(cardId, factionId) {
     return supabase.storage.from(STORAGE_BUCKET).getPublicUrl(path).data.publicUrl;
 }
 
+function buildEffectPayload() {
+    if (!AppState.addedEffects.length) return null;
+
+    const effects = AppState.addedEffects.map((effect) => {
+        if (!effect.json || typeof effect.json !== 'object') {
+            throw new Error(`L'effetto "${effect.name}" non ha dati JSON validi.`);
+        }
+
+        return effect.json;
+    });
+
+    return effects.length === 1 ? effects[0] : { effects };
+}
+
 function collectCardData() {
     const type = $('card-type').value;
-    const effectText = $('effect-text').value.trim() || AppState.addedEffects.map((effect) => effect.text).filter(Boolean).join('. ');
+    const automaticText = AppState.addedEffects.map((effect) => effect.text).filter(Boolean).join('. ');
 
     return {
         name: $('card-name').value.trim(),
@@ -434,12 +515,8 @@ function collectCardData() {
         mana_cost: Number($('mana-cost').value || 0),
         attack: isCreatureType(type) ? Number($('attack').value || 0) : null,
         hp: isCreatureType(type) ? Number($('hp').value || 0) : null,
-        effect_text: effectText,
-        effect_json: AppState.addedEffects.length === 1
-            ? AppState.addedEffects[0].json
-            : AppState.addedEffects.length > 1
-                ? { effects: AppState.addedEffects.map((effect) => effect.json) }
-                : null
+        effect_text: $('effect-text').value.trim() || automaticText,
+        effect_json: buildEffectPayload()
     };
 }
 
@@ -454,7 +531,16 @@ function findDuplicate(cardData, excludedId = null) {
 async function saveCard(event) {
     event.preventDefault();
 
-    const cardData = collectCardData();
+    let cardData;
+
+    try {
+        cardData = collectCardData();
+    } catch (error) {
+        console.error('Errore creazione payload effetti:', error);
+        showMessage(`❌ Errore effetti: ${error.message}`, 'error');
+        return;
+    }
+
     const hasExistingImage = Boolean(AppState.originalImageUrl);
     const hasNewImage = AppState.currentImageFile instanceof Blob;
 
@@ -484,14 +570,19 @@ async function saveCard(event) {
 
             if (!confirmed) return;
 
-            const { error: deleteError } = await supabase.from('cards').delete().eq('id', duplicate.id);
+            const { error: deleteError } = await supabase
+                .from('cards')
+                .delete()
+                .eq('id', duplicate.id);
+
             if (deleteError) throw deleteError;
         }
 
         let savedCard;
 
         if (AppState.isEditing) {
-            showMessage('Aggiornamento carta in corso...', 'success');
+            showMessage('Aggiornamento carta ed effetti in corso...', 'success');
+
             const { data, error } = await supabase
                 .from('cards')
                 .update(cardData)
@@ -502,7 +593,8 @@ async function saveCard(event) {
             if (error) throw error;
             savedCard = data;
         } else {
-            showMessage('Creazione carta in corso...', 'success');
+            showMessage('Creazione carta ed effetti in corso...', 'success');
+
             const { data, error } = await supabase
                 .from('cards')
                 .insert(cardData)
@@ -515,7 +607,9 @@ async function saveCard(event) {
 
         if (hasNewImage) {
             showMessage('Upload immagine WebP in corso...', 'success');
+
             const imageUrl = await uploadImage(savedCard.id, cardData.faction_id);
+
             const { error: imageUrlError } = await supabase
                 .from('cards')
                 .update({ image_url: imageUrl })
@@ -524,7 +618,12 @@ async function saveCard(event) {
             if (imageUrlError) throw imageUrlError;
         }
 
-        showMessage(`✅ Carta "${savedCard.name}" salvata correttamente.`, 'success');
+        const effectMessage = cardData.effect_json
+            ? ' Effetti strutturati salvati.'
+            : ' Nessun effetto strutturato associato.';
+
+        showMessage(`✅ Carta "${savedCard.name}" salvata correttamente.${effectMessage}`, 'success');
+
         $('card-form').reset();
         resetEditorState();
         await loadAllCards();
@@ -622,14 +721,17 @@ function editSelectedCard() {
         formSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
 
-    showMessage('📝 Modalità modifica attiva. La foto esistente verrà mantenuta se non ne scegli una nuova.', 'success');
+    showMessage('📝 Modalità modifica attiva. Foto ed effetti esistenti sono stati caricati.', 'success');
 }
 
 async function deleteSelectedCard() {
     const card = AppState.allCards.find((item) => item.id === AppState.selectedCardId);
     if (!card || !confirm(`Eliminare definitivamente "${card.name}"?`)) return;
 
-    const { error } = await supabase.from('cards').delete().eq('id', card.id);
+    const { error } = await supabase
+        .from('cards')
+        .delete()
+        .eq('id', card.id);
 
     if (error) {
         alert(`Errore: ${error.message}`);
@@ -645,7 +747,11 @@ function updatePreview() {
     $('preview-type').textContent = $('card-type').value || 'Tipo';
     $('preview-mana').textContent = `⚡${$('mana-cost').value || 0}`;
 
-    const generatedEffectText = AppState.addedEffects.map((effect) => effect.text).filter(Boolean).join('. ');
+    const generatedEffectText = AppState.addedEffects
+        .map((effect) => effect.text)
+        .filter(Boolean)
+        .join('. ');
+
     $('preview-effect').textContent = $('effect-text').value || generatedEffectText || 'Testo effetto...';
 
     const creature = isCreatureType($('card-type').value);
@@ -665,7 +771,10 @@ function filterCards() {
     const factionId = $('filter-faction').value;
 
     const filtered = AppState.allCards.filter((card) => {
-        const matchesSearch = !search || card.name.toLowerCase().includes(search) || (card.effect_text || '').toLowerCase().includes(search);
+        const matchesSearch = !search ||
+            card.name.toLowerCase().includes(search) ||
+            (card.effect_text || '').toLowerCase().includes(search);
+
         const matchesFaction = !factionId || card.faction_id === Number(factionId);
         return matchesSearch && matchesFaction;
     });
@@ -690,7 +799,10 @@ function bindEvents() {
     $('btn-preview')?.addEventListener('click', (event) => {
         event.preventDefault();
         updatePreview();
-        document.querySelector('.preview-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        document.querySelector('.preview-section')?.scrollIntoView({
+            behavior: 'smooth',
+            block: 'start'
+        });
     });
 
     $('card-form')?.addEventListener('reset', () => {
@@ -710,6 +822,7 @@ window.CardCreator = {
     supabase,
     loadAllCards,
     updatePreview,
+    buildEffectPayload,
     resetEffects: () => {
         localStorage.removeItem('bellum_effects');
         location.reload();
