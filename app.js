@@ -1,8 +1,6 @@
 import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm';
 import {
     getAllEffects,
-    generateEffectJSON,
-    generateEffectText,
     getEffectConfig,
     addNewEffect,
     deleteEffectById
@@ -64,10 +62,30 @@ function getPreviewImageUrl() {
     return AppState.currentImageUrl || AppState.originalImageUrl || null;
 }
 
-function buildStoredEffect(effectId, params = {}) {
-    const runtimeEffect = generateEffectJSON(effectId, params);
+function executeEffectFunction(code, params, label) {
+    if (typeof code !== 'string' || !code.trim()) {
+        throw new Error(`${label} non è definita per questo effetto.`);
+    }
 
-    if (!runtimeEffect || typeof runtimeEffect !== 'object') {
+    try {
+        const factory = new Function('params', `return (${code})(params);`);
+        return factory(params);
+    } catch (error) {
+        console.error(`Errore esecuzione ${label}:`, error, code, params);
+        throw new Error(`${label} non può essere eseguita: ${error.message}`);
+    }
+}
+
+function buildStoredEffect(effectId, params = {}) {
+    const config = getEffectConfig(effectId);
+
+    if (!config) {
+        throw new Error(`Configurazione non trovata per l'effetto "${effectId}".`);
+    }
+
+    const runtimeEffect = executeEffectFunction(config.generateJSON, params, 'generateJSON');
+
+    if (!runtimeEffect || typeof runtimeEffect !== 'object' || Array.isArray(runtimeEffect)) {
         throw new Error(`L'effetto "${effectId}" non ha generato un JSON valido.`);
     }
 
@@ -77,22 +95,50 @@ function buildStoredEffect(effectId, params = {}) {
     };
 }
 
+function buildEffectText(effectId, params, storedEffect) {
+    const config = getEffectConfig(effectId);
+
+    if (!config) {
+        return JSON.stringify(storedEffect);
+    }
+
+    try {
+        const generated = executeEffectFunction(
+            config.generateText,
+            { ...storedEffect, ...params },
+            'generateText'
+        );
+
+        return typeof generated === 'string' && generated.trim()
+            ? generated
+            : JSON.stringify(storedEffect);
+    } catch (error) {
+        console.warn('Impossibile generare testo effetto:', error);
+        return JSON.stringify(storedEffect);
+    }
+}
+
 function resolveEffectConfig(storedEffect) {
     if (!storedEffect || typeof storedEffect !== 'object') return null;
 
     if (storedEffect.effect_id) {
-        const byId = getEffectConfig(storedEffect.effect_id);
-        if (byId) return byId;
+        const directMatch = getEffectConfig(storedEffect.effect_id);
+        if (directMatch) return directMatch;
     }
 
     const allEffects = getAllEffects();
 
-    const byType = allEffects.find((effect) => effect.id === storedEffect.type);
-    if (byType) return byType;
+    const idMatch = allEffects.find((effect) => effect.id === storedEffect.type);
+    if (idMatch) return idMatch;
 
     return allEffects.find((effect) => {
         try {
-            const generated = generateEffectJSON(effect.id, storedEffect);
+            const params = {};
+            (effect.params || []).forEach((param) => {
+                params[param.name] = storedEffect[param.name] ?? param.default;
+            });
+
+            const generated = executeEffectFunction(effect.generateJSON, params, 'generateJSON');
             return generated?.type === storedEffect.type;
         } catch {
             return false;
@@ -100,10 +146,10 @@ function resolveEffectConfig(storedEffect) {
     }) || null;
 }
 
-function getEffectParamsForEditor(config, storedEffect) {
+function getParamsForEditor(config, storedEffect) {
     const params = {};
 
-    (config?.params || []).forEach((param) => {
+    (config.params || []).forEach((param) => {
         if (storedEffect[param.name] !== undefined && storedEffect[param.name] !== null) {
             params[param.name] = String(storedEffect[param.name]);
         } else {
@@ -112,17 +158,6 @@ function getEffectParamsForEditor(config, storedEffect) {
     });
 
     return params;
-}
-
-function normalizeEffectText(config, params, storedEffect) {
-    try {
-        return generateEffectText(config.id, {
-            ...storedEffect,
-            ...params
-        }) || JSON.stringify(storedEffect);
-    } catch {
-        return JSON.stringify(storedEffect);
-    }
 }
 
 function populateEffectSelector() {
@@ -145,6 +180,7 @@ function renderEffectParams(effectId, values = {}) {
     if (!container) return;
 
     container.innerHTML = '';
+
     const effect = getEffectConfig(effectId);
 
     if (!effect?.params?.length) {
@@ -204,13 +240,14 @@ function addEffectToCard() {
 
     try {
         const storedEffect = buildStoredEffect(effectId, params);
+        const text = buildEffectText(effectId, params, storedEffect);
 
         AppState.addedEffects.push({
             id: config.id,
             name: config.name,
             params,
             json: storedEffect,
-            text: normalizeEffectText(config, params, storedEffect)
+            text
         });
 
         $('effect-type').value = '';
@@ -271,6 +308,7 @@ function renderEffectsManagementList() {
     if (!container) return;
 
     container.innerHTML = '';
+
     const effects = getAllEffects();
 
     if (!effects.length) {
@@ -360,7 +398,10 @@ function deleteSelectedEffect() {
     if (!AppState.selectedEffectId) return;
 
     const effect = getEffectConfig(AppState.selectedEffectId);
-    if (!effect || !confirm(`Eliminare definitivamente l’effetto "${effect.name}"?`)) return;
+
+    if (!effect || !confirm(`Eliminare definitivamente l’effetto "${effect.name}"?`)) {
+        return;
+    }
 
     deleteEffectById(AppState.selectedEffectId);
     closeEffectModal();
@@ -449,25 +490,26 @@ function fillEffectsFromJson(effectJson) {
         return;
     }
 
-    const rawEffects = Array.isArray(effectJson.effects)
+    const storedEffects = Array.isArray(effectJson.effects)
         ? effectJson.effects
         : [effectJson];
 
-    rawEffects.forEach((storedEffect) => {
+    storedEffects.forEach((storedEffect) => {
         const config = resolveEffectConfig(storedEffect);
+
         if (!config) {
             console.warn('Effetto non riconosciuto e non importato:', storedEffect);
             return;
         }
 
-        const params = getEffectParamsForEditor(config, storedEffect);
+        const params = getParamsForEditor(config, storedEffect);
 
         AppState.addedEffects.push({
             id: config.id,
             name: config.name,
             params,
             json: storedEffect,
-            text: normalizeEffectText(config, params, storedEffect)
+            text: buildEffectText(config.id, params, storedEffect)
         });
     });
 
@@ -479,22 +521,28 @@ async function uploadImage(cardId, factionId) {
 
     const path = `${getFactionCode(factionId)}/${cardId}.webp`;
 
-    const { error } = await supabase.storage.from(STORAGE_BUCKET).upload(path, AppState.currentImageFile, {
-        upsert: true,
-        contentType: 'image/webp',
-        cacheControl: '3600'
-    });
+    const { error } = await supabase.storage
+        .from(STORAGE_BUCKET)
+        .upload(path, AppState.currentImageFile, {
+            upsert: true,
+            contentType: 'image/webp',
+            cacheControl: '3600'
+        });
 
     if (error) throw error;
 
-    return supabase.storage.from(STORAGE_BUCKET).getPublicUrl(path).data.publicUrl;
+    return supabase.storage
+        .from(STORAGE_BUCKET)
+        .getPublicUrl(path)
+        .data
+        .publicUrl;
 }
 
 function buildEffectPayload() {
     if (!AppState.addedEffects.length) return null;
 
     const effects = AppState.addedEffects.map((effect) => {
-        if (!effect.json || typeof effect.json !== 'object') {
+        if (!effect.json || typeof effect.json !== 'object' || Array.isArray(effect.json)) {
             throw new Error(`L'effetto "${effect.name}" non ha dati JSON validi.`);
         }
 
@@ -506,7 +554,10 @@ function buildEffectPayload() {
 
 function collectCardData() {
     const type = $('card-type').value;
-    const automaticText = AppState.addedEffects.map((effect) => effect.text).filter(Boolean).join('. ');
+    const automaticText = AppState.addedEffects
+        .map((effect) => effect.text)
+        .filter(Boolean)
+        .join('. ');
 
     return {
         name: $('card-name').value.trim(),
@@ -560,7 +611,10 @@ async function saveCard(event) {
     }
 
     try {
-        const duplicate = findDuplicate(cardData, AppState.isEditing ? AppState.editingCardId : null);
+        const duplicate = findDuplicate(
+            cardData,
+            AppState.isEditing ? AppState.editingCardId : null
+        );
 
         if (duplicate) {
             const confirmed = confirm(
@@ -622,7 +676,10 @@ async function saveCard(event) {
             ? ' Effetti strutturati salvati.'
             : ' Nessun effetto strutturato associato.';
 
-        showMessage(`✅ Carta "${savedCard.name}" salvata correttamente.${effectMessage}`, 'success');
+        showMessage(
+            `✅ Carta "${savedCard.name}" salvata correttamente.${effectMessage}`,
+            'success'
+        );
 
         $('card-form').reset();
         resetEditorState();
@@ -643,7 +700,9 @@ async function loadAllCards() {
         .order('created_at', { ascending: false });
 
     if (error) {
-        if (grid) grid.innerHTML = `<p>Errore database: ${error.message}</p>`;
+        if (grid) {
+            grid.innerHTML = `<p>Errore database: ${error.message}</p>`;
+        }
         return;
     }
 
@@ -721,7 +780,10 @@ function editSelectedCard() {
         formSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
 
-    showMessage('📝 Modalità modifica attiva. Foto ed effetti esistenti sono stati caricati.', 'success');
+    showMessage(
+        '📝 Modalità modifica attiva. Foto ed effetti esistenti sono stati caricati.',
+        'success'
+    );
 }
 
 async function deleteSelectedCard() {
@@ -799,6 +861,7 @@ function bindEvents() {
     $('btn-preview')?.addEventListener('click', (event) => {
         event.preventDefault();
         updatePreview();
+
         document.querySelector('.preview-section')?.scrollIntoView({
             behavior: 'smooth',
             block: 'start'
@@ -823,6 +886,7 @@ window.CardCreator = {
     loadAllCards,
     updatePreview,
     buildEffectPayload,
+    buildStoredEffect,
     resetEffects: () => {
         localStorage.removeItem('bellum_effects');
         location.reload();
