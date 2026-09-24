@@ -85,16 +85,20 @@ function renderEffectParams(effectId) {
     
     const effect = getEffectConfig(effectId);
     if (!effect || !effect.params || effect.params.length === 0) {
+        paramsContainer.innerHTML = '<p class="form-hint">Nessun parametro per questo effetto</p>';
         return;
     }
     
     effect.params.forEach(param => {
         const wrapper = document.createElement('div');
+        wrapper.style.marginBottom = '0.5rem';
         
         const label = document.createElement('label');
         label.textContent = param.label;
         label.style.fontSize = '0.75rem';
         label.style.color = 'var(--text-secondary)';
+        label.style.display = 'block';
+        label.style.marginBottom = '0.25rem';
         wrapper.appendChild(label);
         
         if (param.type === 'number') {
@@ -103,11 +107,15 @@ function renderEffectParams(effectId) {
             input.id = `param-${param.name}`;
             input.min = param.min || 0;
             input.max = param.max || 99;
-            input.value = param.default || 0;
+            input.value = param.default || 1;
+            input.style.width = '100%';
+            input.style.padding = '0.5rem';
             wrapper.appendChild(input);
         } else if (param.type === 'select') {
             const select = document.createElement('select');
             select.id = `param-${param.name}`;
+            select.style.width = '100%';
+            select.style.padding = '0.5rem';
             
             param.options.forEach(opt => {
                 const option = document.createElement('option');
@@ -136,16 +144,20 @@ function addEffectToCard() {
     const params = {};
     
     // Raccogli parametri
-    effect.params?.forEach(param => {
-        const input = document.getElementById(`param-${param.name}`);
-        if (input) {
-            params[param.name] = input.value;
-        }
-    });
+    if (effect.params) {
+        effect.params.forEach(param => {
+            const input = document.getElementById(`param-${param.name}`);
+            if (input) {
+                params[param.name] = input.value;
+            }
+        });
+    }
     
     // Genera JSON e testo
     const effectJSON = generateEffectJSON(effectId, params);
     const effectText = generateEffectText(effectId, params);
+    
+    console.log('Effetto aggiunto:', { effectId, params, effectJSON, effectText });
     
     // Aggiungi alla lista
     AppState.addedEffects.push({
