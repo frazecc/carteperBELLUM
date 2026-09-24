@@ -1,26 +1,15 @@
-/**
- * Bellum Penumbrum - Creatore Carte
- * Gestione creazione, modifica e eliminazione carte su Supabase
- * CON COMPRESSIONE IMMAGINI WEBP E GESTIONE EFFETTI DINAMICI
- */
-
 import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm';
 import { getAllEffects, generateEffectJSON, generateEffectText, getEffectConfig, addNewEffect, deleteEffectById } from './effects.js';
 
-// ============================================
-// CONFIGURAZIONE SUPABASE
-// ============================================
 const SUPABASE_URL = 'https://dgsqxnmrjfvklnjliplh.supabase.co';
 const SUPABASE_ANON_KEY = 'sb_publishable_ZwwwsHnjEWNbe2CnDKsTSA_8ljXZlOG';
-
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+const BUCKET = 'card-images';
 
-// ============================================
-// STATO DELL'APPLICAZIONE
-// ============================================
 const AppState = {
     currentImageFile: null,
     currentImageUrl: null,
+    originalImageUrl: null,
     addedEffects: [],
     allCards: [],
     selectedCardId: null,
@@ -29,992 +18,464 @@ const AppState = {
     editingCardId: null
 };
 
-// ============================================
-// INIZIALIZZAZIONE
-// ============================================
-document.addEventListener('DOMContentLoaded', () => {
-    console.log('Creatore Carte inizializzato');
-    console.log('Supabase client creato:', supabase ? 'OK' : 'ERRORE');
-    
-    initEffectSelector();
-    initEffectsManagement();
-    setupEventListeners();
-    loadAllCards();
-    
-    // Inizializza stats row correttamente
-    const cardTypeSelect = document.getElementById('card-type');
-    const statsRow = document.getElementById('stats-row');
-    if (cardTypeSelect.value && ['monster', 'mostrissimo'].includes(cardTypeSelect.value)) {
-        statsRow.style.display = 'grid';
-    } else {
-        statsRow.style.display = 'none';
-    }
-});
+const $ = id => document.getElementById(id);
+const CREATURE_TYPES = ['monster', 'mostrissimo'];
+const FACTION_CODES = ['CHI', 'INF', 'PES', 'BUL', 'GRO', 'CLO', 'IND'];
 
-// ============================================
-// GESTIONE EFFETTI - SELECTOR
-// ============================================
-function initEffectSelector() {
-    // Forza reset agli effetti default se localStorage è vuoto
-    const stored = localStorage.getItem('bellum_effects');
-    if (!stored) {
-        console.log('Nessun effetto in localStorage, uso default');
-    }
-    
-    populateEffectSelector();
-    renderEffectsManagementList();
+function setStatsVisibility(type = $('card-type').value) {
+    $('stats-row').style.display = CREATURE_TYPES.includes(type) ? 'grid' : 'none';
 }
 
 function populateEffectSelector() {
-    const effectSelect = document.getElementById('effect-type');
-    effectSelect.innerHTML = '<option value="">Seleziona effetto...</option>';
-    
-    const effects = getAllEffects();
-    console.log('Effetti caricati:', effects.length);
-    
-    effects.forEach(effect => {
+    const select = $('effect-type');
+    select.innerHTML = '<option value="">Seleziona effetto...</option>';
+    getAllEffects().forEach(effect => {
         const option = document.createElement('option');
         option.value = effect.id;
         option.textContent = effect.name;
-        option.title = effect.description;
-        effectSelect.appendChild(option);
+        option.title = effect.description || '';
+        select.appendChild(option);
     });
 }
 
-function renderEffectParams(effectId) {
-    const paramsContainer = document.getElementById('effect-params');
-    paramsContainer.innerHTML = '';
-    
+function renderEffectParams(effectId, values = {}) {
+    const container = $('effect-params');
+    container.innerHTML = '';
     const effect = getEffectConfig(effectId);
-    if (!effect || !effect.params || effect.params.length === 0) {
-        paramsContainer.innerHTML = '<p class="form-hint">Nessun parametro per questo effetto</p>';
+    if (!effect?.params?.length) {
+        container.innerHTML = '<p class="form-hint">Nessun parametro per questo effetto.</p>';
         return;
     }
-    
     effect.params.forEach(param => {
         const wrapper = document.createElement('div');
-        wrapper.style.marginBottom = '0.5rem';
-        
         const label = document.createElement('label');
         label.textContent = param.label;
-        label.style.fontSize = '0.75rem';
-        label.style.color = 'var(--text-secondary)';
-        label.style.display = 'block';
-        label.style.marginBottom = '0.25rem';
         wrapper.appendChild(label);
-        
-        if (param.type === 'number') {
-            const input = document.createElement('input');
-            input.type = 'number';
-            input.id = `param-${param.name}`;
-            input.min = param.min || 0;
-            input.max = param.max || 99;
-            input.value = param.default || 1;
-            input.style.width = '100%';
-            input.style.padding = '0.5rem';
-            wrapper.appendChild(input);
-        } else if (param.type === 'select') {
-            const select = document.createElement('select');
-            select.id = `param-${param.name}`;
-            select.style.width = '100%';
-            select.style.padding = '0.5rem';
-            
-            param.options.forEach(opt => {
+        let input;
+        if (param.type === 'select') {
+            input = document.createElement('select');
+            (param.options || []).forEach(optionData => {
                 const option = document.createElement('option');
-                option.value = opt.value;
-                option.textContent = opt.label;
-                select.appendChild(option);
+                option.value = optionData.value;
+                option.textContent = optionData.label;
+                input.appendChild(option);
             });
-            
-            wrapper.appendChild(select);
+        } else {
+            input = document.createElement('input');
+            input.type = 'number';
+            input.min = param.min ?? 0;
+            input.max = param.max ?? 99;
         }
-        
-        paramsContainer.appendChild(wrapper);
+        input.id = `param-${param.name}`;
+        input.value = values[param.name] ?? param.default ?? 1;
+        wrapper.appendChild(input);
+        container.appendChild(wrapper);
     });
 }
 
 function addEffectToCard() {
-    const effectSelect = document.getElementById('effect-type');
-    const effectId = effectSelect.value;
-    
-    if (!effectId) {
-        alert('Seleziona un effetto!');
-        return;
-    }
-    
-    const effect = getEffectConfig(effectId);
+    const effectId = $('effect-type').value;
+    const config = getEffectConfig(effectId);
+    if (!config) return alert('Seleziona un effetto.');
     const params = {};
-    
-    // Raccogli parametri
-    if (effect.params) {
-        effect.params.forEach(param => {
-            const input = document.getElementById(`param-${param.name}`);
-            if (input) {
-                params[param.name] = input.value;
-            }
-        });
-    }
-    
-    // Genera JSON e testo
-    const effectJSON = generateEffectJSON(effectId, params);
-    const effectText = generateEffectText(effectId, params);
-    
-    console.log('Effetto aggiunto:', { effectId, params, effectJSON, effectText });
-    
-    // Aggiungi alla lista
+    (config.params || []).forEach(param => {
+        params[param.name] = $(`param-${param.name}`)?.value ?? param.default;
+    });
+    const json = generateEffectJSON(effectId, params);
+    if (!json) return alert('Impossibile generare l’effetto.');
     AppState.addedEffects.push({
         id: effectId,
-        name: effect.name,
+        name: config.name,
         params,
-        json: effectJSON,
-        text: effectText
+        json,
+        text: generateEffectText(effectId, params)
     });
-    
-    renderEffectsList();
-    
-    // Resetta select
-    effectSelect.value = '';
-    document.getElementById('effect-params').innerHTML = '';
+    renderCardEffects();
+    $('effect-type').value = '';
+    $('effect-params').innerHTML = '';
 }
 
-function renderEffectsList() {
-    const effectsList = document.getElementById('effects-list');
-    
-    if (AppState.addedEffects.length === 0) {
-        effectsList.innerHTML = '<p class="no-effects">Nessun effetto aggiunto. Seleziona dalla lista in basso.</p>';
+function renderCardEffects() {
+    const container = $('effects-list');
+    container.innerHTML = '';
+    if (!AppState.addedEffects.length) {
+        container.innerHTML = '<p class="no-effects">Nessun effetto aggiunto. Seleziona dalla lista in basso.</p>';
         return;
     }
-    
-    effectsList.innerHTML = '';
-    
     AppState.addedEffects.forEach((effect, index) => {
         const item = document.createElement('div');
         item.className = 'effect-item';
-        
-        const info = document.createElement('div');
-        info.className = 'effect-info';
-        
-        const name = document.createElement('div');
-        name.className = 'effect-name';
-        name.textContent = effect.name;
-        
-        const details = document.createElement('div');
-        details.className = 'effect-details';
-        details.textContent = effect.text;
-        
-        info.appendChild(name);
-        info.appendChild(details);
-        
-        const removeBtn = document.createElement('button');
-        removeBtn.className = 'btn-remove';
-        removeBtn.textContent = 'Rimuovi';
-        removeBtn.addEventListener('click', () => removeEffectFromCard(index));
-        
-        item.appendChild(info);
-        item.appendChild(removeBtn);
-        
-        effectsList.appendChild(item);
+        item.innerHTML = `<div class="effect-info"><div class="effect-name"></div><div class="effect-details"></div></div>`;
+        item.querySelector('.effect-name').textContent = effect.name;
+        item.querySelector('.effect-details').textContent = effect.text || JSON.stringify(effect.json);
+        const remove = document.createElement('button');
+        remove.type = 'button';
+        remove.className = 'btn-remove';
+        remove.textContent = 'Rimuovi';
+        remove.onclick = () => {
+            AppState.addedEffects.splice(index, 1);
+            renderCardEffects();
+            updatePreview();
+        };
+        item.appendChild(remove);
+        container.appendChild(item);
     });
-}
-
-function removeEffectFromCard(index) {
-    AppState.addedEffects.splice(index, 1);
-    renderEffectsList();
-}
-
-// ============================================
-// GESTIONE EFFETTI - MANAGEMENT SECTION
-// ============================================
-function initEffectsManagement() {
-    renderEffectsManagementList();
-    
-    // Form nuovo effetto
-    document.getElementById('effect-form').addEventListener('submit', handleNewEffectSubmit);
-    
-    // Modali
-    document.getElementById('effect-modal-close').addEventListener('click', closeEffectModal);
-    document.getElementById('effect-modal-delete').addEventListener('click', confirmDeleteEffect);
+    if (!$('effect-text').value.trim()) {
+        $('effect-text').value = AppState.addedEffects.map(effect => effect.text).filter(Boolean).join('. ');
+    }
+    updatePreview();
 }
 
 function renderEffectsManagementList() {
-    const container = document.getElementById('effects-list-container');
+    const container = $('effects-list-container');
     container.innerHTML = '';
-    
     const effects = getAllEffects();
-    
-    if (effects.length === 0) {
-        container.innerHTML = '<p class="no-effects">Nessun effetto presente. Crea il primo!</p>';
+    if (!effects.length) {
+        container.innerHTML = '<p class="no-effects">Nessun effetto presente.</p>';
         return;
     }
-    
     effects.forEach(effect => {
         const card = document.createElement('div');
         card.className = 'effect-card';
-        
         const header = document.createElement('div');
         header.className = 'effect-card-header';
-        
         const title = document.createElement('span');
         title.className = 'effect-card-title';
         title.textContent = effect.name;
-        
-        const actions = document.createElement('div');
-        actions.className = 'effect-card-actions';
-        
-        const viewBtn = document.createElement('button');
-        viewBtn.className = 'btn-view';
-        viewBtn.textContent = 'Vedi';
-        viewBtn.addEventListener('click', () => viewEffect(effect.id));
-        
-        actions.appendChild(viewBtn);
-        
-        header.appendChild(title);
-        header.appendChild(actions);
-        
+        const view = document.createElement('button');
+        view.type = 'button';
+        view.className = 'btn-view';
+        view.textContent = 'Vedi';
+        view.onclick = () => viewEffect(effect.id);
+        header.append(title, view);
         const body = document.createElement('div');
         body.className = 'effect-card-body';
-        body.textContent = effect.description;
-        
-        card.appendChild(header);
-        card.appendChild(body);
-        
+        body.textContent = effect.description || effect.id;
+        card.append(header, body);
         container.appendChild(card);
     });
 }
 
-function handleNewEffectSubmit(event) {
-    event.preventDefault();
-    
-    const newEffect = {
-        id: document.getElementById('effect-id').value.trim(),
-        name: document.getElementById('effect-name').value.trim(),
-        description: document.getElementById('effect-description').value.trim(),
-        params: [],
-        generateJSON: document.getElementById('effect-generate-json').value.trim(),
-        generateText: document.getElementById('effect-generate-text').value.trim()
-    };
-    
-    try {
-        addNewEffect(newEffect);
-        alert(`Effetto "${newEffect.name}" creato con successo!`);
-        
-        // Reset form
-        document.getElementById('effect-form').reset();
-        
-        // Ricarica liste
-        populateEffectSelector();
-        renderEffectsManagementList();
-        
-    } catch (error) {
-        alert(`Errore: ${error.message}`);
-    }
+function initializeEffects() {
+    populateEffectSelector();
+    renderEffectsManagementList();
+    $('effect-type').addEventListener('change', event => renderEffectParams(event.target.value));
+    $('btn-add-effect').addEventListener('click', addEffectToCard);
+    $('effect-form').addEventListener('submit', event => {
+        event.preventDefault();
+        const effect = {
+            id: $('effect-id').value.trim(),
+            name: $('effect-name').value.trim(),
+            description: $('effect-description').value.trim(),
+            params: [],
+            generateJSON: $('effect-generate-json').value.trim(),
+            generateText: $('effect-generate-text').value.trim()
+        };
+        try {
+            addNewEffect(effect);
+            $('effect-form').reset();
+            populateEffectSelector();
+            renderEffectsManagementList();
+            alert(`Effetto "${effect.name}" creato con successo.`);
+        } catch (error) {
+            alert(`Errore: ${error.message}`);
+        }
+    });
+    $('effect-modal-close').addEventListener('click', closeEffectModal);
+    $('effect-modal-delete').addEventListener('click', deleteSelectedEffect);
 }
 
-function viewEffect(effectId) {
-    const effect = getEffectConfig(effectId);
+function viewEffect(id) {
+    AppState.selectedEffectId = id;
+    const effect = getEffectConfig(id);
     if (!effect) return;
-    
-    AppState.selectedEffectId = effectId;
-    
-    const modal = document.getElementById('effect-modal');
-    const title = document.getElementById('effect-modal-title');
-    
-    title.textContent = effect.name;
-    modal.style.display = 'flex';
+    $('effect-modal-title').textContent = `${effect.name} (${effect.id})`;
+    $('effect-modal').style.display = 'flex';
 }
 
 function closeEffectModal() {
-    const modal = document.getElementById('effect-modal');
-    modal.style.display = 'none';
+    $('effect-modal').style.display = 'none';
     AppState.selectedEffectId = null;
 }
 
-function confirmDeleteEffect() {
+function deleteSelectedEffect() {
     if (!AppState.selectedEffectId) return;
-    
     const effect = getEffectConfig(AppState.selectedEffectId);
-    if (!effect) return;
-    
-    const confirmed = confirm(`Eliminare l'effetto "${effect.name}"?`);
-    if (!confirmed) return;
-    
-    try {
-        deleteEffectById(AppState.selectedEffectId);
-        alert('Effetto eliminato!');
-        
-        closeEffectModal();
-        populateEffectSelector();
-        renderEffectsManagementList();
-        
-    } catch (error) {
-        alert(`Errore: ${error.message}`);
-    }
+    if (!effect || !confirm(`Eliminare "${effect.name}"?`)) return;
+    deleteEffectById(AppState.selectedEffectId);
+    closeEffectModal();
+    populateEffectSelector();
+    renderEffectsManagementList();
 }
 
-// ============================================
-// COMPRESSIONE IMMAGINE WEBP
-// ============================================
-async function compressImageToWebP(file, quality = 0.7) {
+function readBlobAsDataUrl(blob) {
     return new Promise((resolve, reject) => {
         const reader = new FileReader();
-        
-        reader.onload = (e) => {
-            const img = new Image();
-            
-            img.onload = () => {
-                const canvas = document.createElement('canvas');
-                const ctx = canvas.getContext('2d');
-                
-                // Ridimensiona se troppo grande (max 800px)
-                let width = img.width;
-                let height = img.height;
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
+    });
+}
+
+function compressImageToWebP(file, quality = 0.7) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = event => {
+            const image = new Image();
+            image.onload = () => {
                 const maxSize = 800;
-                
-                if (width > maxSize || height > maxSize) {
-                    const ratio = Math.min(maxSize / width, maxSize / height);
-                    width = Math.floor(width * ratio);
-                    height = Math.floor(height * ratio);
-                }
-                
-                canvas.width = width;
-                canvas.height = height;
-                
-                // Disegna immagine
-                ctx.drawImage(img, 0, 0, width, height);
-                
-                // Converti in WebP
-                canvas.toBlob(
-                    (blob) => {
-                        if (blob) {
-                            resolve(blob);
-                        } else {
-                            reject(new Error('Conversione WebP fallita'));
-                        }
-                    },
-                    'image/webp',
-                    quality
-                );
+                const ratio = Math.min(1, maxSize / Math.max(image.width, image.height));
+                const canvas = document.createElement('canvas');
+                canvas.width = Math.max(1, Math.round(image.width * ratio));
+                canvas.height = Math.max(1, Math.round(image.height * ratio));
+                canvas.getContext('2d').drawImage(image, 0, 0, canvas.width, canvas.height);
+                canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error('Conversione WebP fallita')), 'image/webp', quality);
             };
-            
-            img.onerror = () => reject(new Error('Errore caricamento immagine'));
-            img.src = e.target.result;
+            image.onerror = () => reject(new Error('Immagine non leggibile'));
+            image.src = event.target.result;
         };
-        
-        reader.onerror = () => reject(new Error('Errore lettura file'));
+        reader.onerror = () => reject(new Error('Lettura immagine fallita'));
         reader.readAsDataURL(file);
     });
 }
 
-// ============================================
-// GESTIONE IMMAGINE
-// ============================================
-async function handleImageUpload(event) {
-    const file = event.target.files[0];
-    
+async function handleImageChange(event) {
+    const file = event.target.files?.[0];
     if (!file) return;
-    
-    // Verifica tipo file
-    const validTypes = ['image/png', 'image/jpeg', 'image/webp'];
-    if (!validTypes.includes(file.type)) {
-        alert('Formato immagine non valido. Usa PNG, JPEG o WebP.');
-        event.target.value = '';
-        return;
-    }
-    
     try {
-        // Comprimi in WebP
         showMessage('Compressione immagine in corso...', 'success');
-        const compressedBlob = await compressImageToWebP(file, 0.7);
-        
-        AppState.currentImageFile = compressedBlob;
-        
-        // Mostra anteprima
-        const reader = new FileReader();
-        reader.onload = (e) => {
-            AppState.currentImageUrl = e.target.result;
-            
-            const preview = document.getElementById('image-preview');
-            preview.innerHTML = `<img src="${e.target.result}" alt="Anteprima">`;
-            
-            // Aggiorna anche anteprima carta
-            updateCardPreview();
-            
-            showMessage('Immagine compressa con successo!', 'success');
-        };
-        reader.readAsDataURL(compressedBlob);
-        
+        AppState.currentImageFile = await compressImageToWebP(file);
+        AppState.currentImageUrl = await readBlobAsDataUrl(AppState.currentImageFile);
+        $('image-preview').innerHTML = `<img src="${AppState.currentImageUrl}" alt="Anteprima">`;
+        updatePreview();
+        showMessage('Immagine pronta: verrà salvata come WebP.', 'success');
     } catch (error) {
-        console.error('Errore compressione:', error);
-        alert(`Errore compressione immagine: ${error.message}`);
-        event.target.value = '';
-    }
-}
-
-async function uploadImageToSupabase(cardId, factionCode) {
-    if (!AppState.currentImageFile) return null;
-    
-    const filePath = `${factionCode}/${cardId}.webp`;
-    
-    const { data, error } = await supabase.storage
-        .from('card-images')
-        .upload(filePath, AppState.currentImageFile, {
-            upsert: true,
-            contentType: 'image/webp'
-        });
-    
-    if (error) {
-        console.error('Errore upload immagine:', error);
-        throw error;
-    }
-    
-    // Ottieni URL pubblico
-    const { data: { publicUrl } } = supabase.storage
-        .from('card-images')
-        .getPublicUrl(filePath);
-    
-    return publicUrl;
-}
-
-// ============================================
-// GESTIONE FORM
-// ============================================
-function setupEventListeners() {
-    // Upload immagine
-    document.getElementById('card-image').addEventListener('change', handleImageUpload);
-    
-    // Mostra/nascondi stats in base al tipo - FIX CORRETTO
-    const cardTypeSelect = document.getElementById('card-type');
-    const statsRow = document.getElementById('stats-row');
-    
-    cardTypeSelect.addEventListener('change', (e) => {
-        const type = e.target.value;
-        
-        if (['monster', 'mostrissimo'].includes(type)) {
-            statsRow.style.display = 'grid';
-        } else {
-            statsRow.style.display = 'none';
-        }
-        
-        updateCardPreview();
-    });
-    
-    // Aggiorna anteprima in tempo reale
-    ['card-name', 'card-type', 'faction', 'mana-cost', 'attack', 'hp', 'effect-text'].forEach(id => {
-        document.getElementById(id).addEventListener('input', updateCardPreview);
-    });
-    
-    // Aggiungi effetto
-    document.getElementById('btn-add-effect').addEventListener('click', addEffectToCard);
-    
-    // Submit form
-    document.getElementById('card-form').addEventListener('submit', handleFormSubmit);
-    
-    // Anteprima
-    document.getElementById('btn-preview').addEventListener('click', (e) => {
-        e.preventDefault();
-        updateCardPreview();
-        alert('✅ Anteprima aggiornata! Guarda la sezione a destra.');
-    });
-    
-    // Reset form
-    document.getElementById('card-form').addEventListener('reset', () => {
-        setTimeout(() => {
-            AppState.addedEffects = [];
-            AppState.currentImageFile = null;
-            AppState.currentImageUrl = null;
-            AppState.isEditing = false;
-            AppState.editingCardId = null;
-            renderEffectsList();
-            document.getElementById('image-preview').innerHTML = '<p>Anteprima immagine</p>';
-            updateCardPreview();
-        }, 10);
-    });
-    
-    // Ricarica carte
-    document.getElementById('btn-refresh-cards').addEventListener('click', loadAllCards);
-    
-    // Cerca carte
-    document.getElementById('search-cards').addEventListener('input', filterCards);
-    document.getElementById('filter-faction').addEventListener('change', filterCards);
-    
-    // Modale carta
-    document.getElementById('modal-close').addEventListener('click', closeModal);
-    document.getElementById('modal-edit').addEventListener('click', editSelectedCard);
-    document.getElementById('modal-delete').addEventListener('click', deleteSelectedCard);
-}
-
-async function handleFormSubmit(event) {
-    event.preventDefault();
-    
-    const messageEl = document.getElementById('form-message');
-    messageEl.className = 'form-message';
-    
-    // Raccogli dati form
-    const cardType = document.getElementById('card-type').value;
-    const cardData = {
-        name: document.getElementById('card-name').value.trim(),
-        faction_id: parseInt(document.getElementById('faction').value),
-        card_type: cardType,
-        mana_cost: parseInt(document.getElementById('mana-cost').value) || 0,
-        attack: ['monster', 'mostrissimo'].includes(cardType) ? (parseInt(document.getElementById('attack').value) || null) : null,
-        hp: ['monster', 'mostrissimo'].includes(cardType) ? (parseInt(document.getElementById('hp').value) || null) : null,
-        effect_text: document.getElementById('effect-text').value.trim(),
-        is_boss: false,
-        is_indrazzi: false
-    };
-    
-    // Genera effect_json
-    if (AppState.addedEffects.length > 0) {
-        if (AppState.addedEffects.length === 1) {
-            cardData.effect_json = AppState.addedEffects[0].json;
-        } else {
-            cardData.effect_json = {
-                effects: AppState.addedEffects.map(e => e.json)
-            };
-        }
-    }
-    
-    try {
-        // MODALITÀ MODIFICA
-        if (AppState.isEditing && AppState.editingCardId) {
-            showMessage('Aggiornamento carta in corso...', 'success');
-            
-            // Controllo duplicati (solo se è cambiato il nome)
-            const originalCard = AppState.allCards.find(c => c.id === AppState.editingCardId);
-            if (originalCard && originalCard.name !== cardData.name) {
-                const duplicate = AppState.allCards.find(c => 
-                    c.name === cardData.name && 
-                    c.faction_id === cardData.faction_id && 
-                    c.id !== AppState.editingCardId
-                );
-                
-                if (duplicate) {
-                    const confirmed = confirm(
-                        `⚠️ Esiste già una carta con questo nome nella stessa fazione!\n\n` +
-                        `Carta esistente: "${duplicate.name}" (ID: ${duplicate.id})\n\n` +
-                        `Vuoi sovrascriverla? Quella esistente andrà persa per sempre.`
-                    );
-                    
-                    if (!confirmed) {
-                        showMessage('Operazione annullata', 'error');
-                        return;
-                    }
-                    
-                    // Elimina la carta duplicata prima di aggiornare
-                    await supabase.from('cards').delete().eq('id', duplicate.id);
-                }
-            }
-            
-            // Aggiorna carta esistente
-            const { data: card, error: updateError } = await supabase
-                .from('cards')
-                .update(cardData)
-                .eq('id', AppState.editingCardId)
-                .select()
-                .single();
-            
-            if (updateError) {
-                console.error('Errore aggiornamento carta:', updateError);
-                throw updateError;
-            }
-            
-            // Upload nuova immagine (se caricata)
-            if (AppState.currentImageFile) {
-                showMessage('Upload nuova immagine...', 'success');
-                const factionCodes = ['CHI', 'INF', 'PES', 'BUL', 'GRO', 'CLO', 'IND'];
-                const factionCode = factionCodes[cardData.faction_id - 1];
-                
-                const imageUrl = await uploadImageToSupabase(card.id, factionCode);
-                
-                if (imageUrl) {
-                    await supabase
-                        .from('cards')
-                        .update({ image_url: imageUrl })
-                        .eq('id', card.id);
-                }
-            }
-            
-            showMessage(`✅ Carta "${card.name}" aggiornata con successo!`, 'success');
-            
-        } else {
-            // NUOVA CARTA
-            showMessage('Creazione carta in corso...', 'success');
-            
-            // Verifica immagine (solo per nuove carte)
-            if (!AppState.currentImageFile) {
-                showMessage('Devi caricare un\'immagine!', 'error');
-                return;
-            }
-            
-            // Controllo duplicati prima di creare
-            const duplicate = AppState.allCards.find(c => 
-                c.name === cardData.name && c.faction_id === cardData.faction_id
-            );
-            
-            if (duplicate) {
-                const confirmed = confirm(
-                    `⚠️ Esiste già una carta con questo nome nella stessa fazione!\n\n` +
-                    `Carta esistente: "${duplicate.name}" (ID: ${duplicate.id})\n\n` +
-                    `Vuoi sovrascriverla? Quella esistente andrà persa per sempre.`
-                );
-                
-                if (!confirmed) {
-                    showMessage('Operazione annullata', 'error');
-                    return;
-                }
-                
-                // Elimina la carta duplicata
-                await supabase.from('cards').delete().eq('id', duplicate.id);
-            }
-            
-            // 1. Crea la carta (senza image_url)
-            const { data: card, error: cardError } = await supabase
-                .from('cards')
-                .insert([cardData])
-                .select()
-                .single();
-            
-            if (cardError) {
-                console.error('Errore inserimento carta:', cardError);
-                throw cardError;
-            }
-            
-            // 2. Carica immagine
-            const factionCodes = ['CHI', 'INF', 'PES', 'BUL', 'GRO', 'CLO', 'IND'];
-            const factionCode = factionCodes[cardData.faction_id - 1];
-            
-            showMessage('Upload immagine...', 'success');
-            const imageUrl = await uploadImageToSupabase(card.id, factionCode);
-            
-            if (!imageUrl) {
-                throw new Error('Upload immagine fallito');
-            }
-            
-            // 3. Aggiorna carta con image_url
-            const { error: updateError } = await supabase
-                .from('cards')
-                .update({ image_url: imageUrl })
-                .eq('id', card.id);
-            
-            if (updateError) {
-                console.error('Errore aggiornamento image_url:', updateError);
-                throw updateError;
-            }
-            
-            showMessage(`✅ Carta "${card.name}" creata con successo! Immagine: WebP compresso.`, 'success');
-        }
-        
-        // Reset form
-        document.getElementById('card-form').reset();
-        AppState.addedEffects = [];
         AppState.currentImageFile = null;
-        AppState.currentImageUrl = null;
-        AppState.isEditing = false;
-        AppState.editingCardId = null;
-        renderEffectsList();
-        document.getElementById('image-preview').innerHTML = '<p>Anteprima immagine</p>';
-        updateCardPreview();
-        
-        // Ricarica lista carte
-        loadAllCards();
-        
+        $('card-image').value = '';
+        showMessage(`Errore immagine: ${error.message}`, 'error');
+    }
+}
+
+function resetEditorState() {
+    AppState.currentImageFile = null;
+    AppState.currentImageUrl = null;
+    AppState.originalImageUrl = null;
+    AppState.addedEffects = [];
+    AppState.isEditing = false;
+    AppState.editingCardId = null;
+    renderCardEffects();
+    $('image-preview').innerHTML = '<p>Anteprima immagine</p>';
+    $('card-image').value = '';
+    updatePreview();
+}
+
+function fillEffectsFromJson(effectJson) {
+    AppState.addedEffects = [];
+    if (!effectJson) return;
+    const rawEffects = Array.isArray(effectJson.effects) ? effectJson.effects : [effectJson];
+    rawEffects.forEach(json => {
+        if (!json?.type) return;
+        const config = getEffectConfig(json.type);
+        if (!config) return;
+        const params = {};
+        (config.params || []).forEach(param => {
+            if (json[param.name] !== undefined) params[param.name] = String(json[param.name]);
+        });
+        AppState.addedEffects.push({
+            id: config.id,
+            name: config.name,
+            params,
+            json,
+            text: generateEffectText(config.id, { ...json, ...params })
+        });
+    });
+    renderCardEffects();
+}
+
+async function uploadImage(cardId, factionId) {
+    if (!(AppState.currentImageFile instanceof Blob)) return null;
+    const path = `${FACTION_CODES[factionId - 1] || 'IND'}/${cardId}.webp`;
+    const { error } = await supabase.storage.from(BUCKET).upload(path, AppState.currentImageFile, {
+        upsert: true,
+        contentType: 'image/webp',
+        cacheControl: '3600'
+    });
+    if (error) throw error;
+    return supabase.storage.from(BUCKET).getPublicUrl(path).data.publicUrl;
+}
+
+function collectCardData() {
+    const type = $('card-type').value;
+    const data = {
+        name: $('card-name').value.trim(),
+        faction_id: Number($('faction').value),
+        card_type: type,
+        mana_cost: Number($('mana-cost').value || 0),
+        attack: CREATURE_TYPES.includes(type) ? Number($('attack').value || 0) : null,
+        hp: CREATURE_TYPES.includes(type) ? Number($('hp').value || 0) : null,
+        effect_text: $('effect-text').value.trim() || AppState.addedEffects.map(e => e.text).filter(Boolean).join('. '),
+        effect_json: AppState.addedEffects.length === 1 ? AppState.addedEffects[0].json : AppState.addedEffects.length > 1 ? { effects: AppState.addedEffects.map(e => e.json) } : null
+    };
+    return data;
+}
+
+async function findDuplicate(cardData, excludedId = null) {
+    return AppState.allCards.find(card => card.name === cardData.name && card.faction_id === cardData.faction_id && card.id !== excludedId) || null;
+}
+
+async function saveCard(event) {
+    event.preventDefault();
+    const cardData = collectCardData();
+    if (!cardData.name || !cardData.faction_id || !cardData.card_type) return showMessage('Compila nome, fazione e tipo.', 'error');
+    if (!AppState.isEditing && !(AppState.currentImageFile instanceof Blob)) return showMessage('Seleziona un file immagine prima di salvare.', 'error');
+    try {
+        const duplicate = await findDuplicate(cardData, AppState.isEditing ? AppState.editingCardId : null);
+        if (duplicate) {
+            const ok = confirm(`Esiste già "${duplicate.name}" nella stessa fazione. Vuoi sovrascriverla definitivamente?`);
+            if (!ok) return;
+            const { error } = await supabase.from('cards').delete().eq('id', duplicate.id);
+            if (error) throw error;
+        }
+        let card;
+        if (AppState.isEditing) {
+            const { data, error } = await supabase.from('cards').update(cardData).eq('id', AppState.editingCardId).select().single();
+            if (error) throw error;
+            card = data;
+        } else {
+            const { data, error } = await supabase.from('cards').insert(cardData).select().single();
+            if (error) throw error;
+            card = data;
+        }
+        if (AppState.currentImageFile instanceof Blob) {
+            showMessage('Carta salvata. Upload immagine WebP in corso...', 'success');
+            const imageUrl = await uploadImage(card.id, cardData.faction_id);
+            const { error } = await supabase.from('cards').update({ image_url: imageUrl }).eq('id', card.id);
+            if (error) throw error;
+        }
+        showMessage(`✅ Carta "${card.name}" salvata correttamente.`, 'success');
+        resetEditorState();
+        await loadAllCards();
     } catch (error) {
-        console.error('Errore creazione/aggiornamento carta:', error);
+        console.error(error);
         showMessage(`❌ Errore: ${error.message}`, 'error');
     }
 }
 
-function showMessage(message, type) {
-    const messageEl = document.getElementById('form-message');
-    messageEl.textContent = message;
-    messageEl.className = `form-message ${type}`;
-    
-    if (type === 'success') {
-        setTimeout(() => {
-            messageEl.className = 'form-message';
-        }, 5000);
-    }
-}
-
-// ============================================
-// ANTEPRIMA CARTA
-// ============================================
-function updateCardPreview() {
-    const name = document.getElementById('card-name').value || 'Nome Carta';
-    const type = document.getElementById('card-type').value || 'Tipo';
-    const mana = document.getElementById('mana-cost').value || '0';
-    const attack = document.getElementById('attack').value || '0';
-    const hp = document.getElementById('hp').value || '0';
-    const effect = document.getElementById('effect-text').value || 'Testo effetto...';
-    
-    document.getElementById('preview-name').textContent = name;
-    document.getElementById('preview-type').textContent = type;
-    document.getElementById('preview-mana').textContent = `⚡${mana}`;
-    document.getElementById('preview-effect').textContent = effect;
-    
-    // Stats
-    const cardType = document.getElementById('card-type').value;
-    const atkEl = document.getElementById('preview-atk');
-    const hpEl = document.getElementById('preview-hp');
-    
-    if (['monster', 'mostrissimo'].includes(cardType)) {
-        atkEl.style.display = 'inline';
-        hpEl.style.display = 'inline';
-        atkEl.textContent = `⚔${attack}`;
-        hpEl.textContent = `❤${hp}`;
-    } else {
-        atkEl.style.display = 'none';
-        hpEl.style.display = 'none';
-    }
-    
-    // Immagine
-    const imageEl = document.getElementById('preview-image');
-    if (AppState.currentImageUrl) {
-        imageEl.innerHTML = `<img src="${AppState.currentImageUrl}" alt="Anteprima">`;
-    } else {
-        imageEl.innerHTML = '<span>Immagine</span>';
-    }
-}
-
-// ============================================
-// GESTIONE CARTE ESISTENTI
-// ============================================
 async function loadAllCards() {
-    const grid = document.getElementById('cards-grid');
-    grid.innerHTML = '<p>Caricamento...</p>';
-    
-    try {
-        const { data, error } = await supabase
-            .from('cards')
-            .select(`
-                *,
-                factions (
-                    name,
-                    code,
-                    color_hex
-                )
-            `)
-            .order('created_at', { ascending: false });
-        
-        if (error) {
-            console.error('Errore caricamento carte:', error);
-            grid.innerHTML = `<p>Errore DB: ${error.message}</p>`;
-            return;
-        }
-        
-        AppState.allCards = data;
-        renderCardsGrid(data);
-        
-    } catch (err) {
-        console.error('Eccezione caricamento carte:', err);
-        grid.innerHTML = `<p>Errore: ${err.message}</p>`;
+    const { data, error } = await supabase.from('cards').select('*, factions(name, code, color_hex)').order('created_at', { ascending: false });
+    if (error) {
+        $('cards-grid').innerHTML = `<p>Errore DB: ${error.message}</p>`;
+        return;
     }
+    AppState.allCards = data || [];
+    renderCardsGrid(AppState.allCards);
 }
 
 function renderCardsGrid(cards) {
-    const grid = document.getElementById('cards-grid');
-    grid.innerHTML = '';
-    
-    if (!cards || cards.length === 0) {
-        grid.innerHTML = '<p>Nessuna carta trovata</p>';
-        return;
-    }
-    
+    const grid = $('cards-grid');
+    grid.innerHTML = cards.length ? '' : '<p>Nessuna carta trovata.</p>';
     cards.forEach(card => {
         const item = document.createElement('div');
         item.className = 'card-item';
-        
-        const name = document.createElement('div');
-        name.className = 'card-name';
-        name.textContent = card.name;
-        
-        const meta = document.createElement('div');
-        meta.className = 'card-meta';
-        meta.textContent = `${card.factions?.name || '???'} • ${card.card_type} • ⚡${card.mana_cost}`;
-        
-        item.appendChild(name);
-        item.appendChild(meta);
-        
-        item.addEventListener('click', () => selectCard(card));
-        
+        item.innerHTML = `<div class="card-name"></div><div class="card-meta"></div>`;
+        item.querySelector('.card-name').textContent = card.name;
+        item.querySelector('.card-meta').textContent = `${card.factions?.name || '???'} • ${card.card_type} • ⚡${card.mana_cost}`;
+        item.onclick = () => selectCard(card);
         grid.appendChild(item);
     });
 }
 
-function filterCards() {
-    const searchTerm = document.getElementById('search-cards').value.toLowerCase();
-    const factionFilter = document.getElementById('filter-faction').value;
-    
-    let filtered = AppState.allCards;
-    
-    if (searchTerm) {
-        filtered = filtered.filter(card => 
-            card.name.toLowerCase().includes(searchTerm) ||
-            card.effect_text?.toLowerCase().includes(searchTerm)
-        );
-    }
-    
-    if (factionFilter) {
-        filtered = filtered.filter(card => card.faction_id === parseInt(factionFilter));
-    }
-    
-    renderCardsGrid(filtered);
-}
-
 function selectCard(card) {
     AppState.selectedCardId = card.id;
-    
-    const modal = document.getElementById('card-modal');
-    const title = document.getElementById('modal-title');
-    
-    title.textContent = card.name;
-    modal.style.display = 'flex';
+    $('modal-title').textContent = card.name;
+    $('card-modal').style.display = 'flex';
 }
 
-function closeModal() {
-    const modal = document.getElementById('card-modal');
-    modal.style.display = 'none';
+function closeCardModal() {
+    $('card-modal').style.display = 'none';
     AppState.selectedCardId = null;
 }
 
-async function editSelectedCard() {
-    if (!AppState.selectedCardId) return;
-    
-    const card = AppState.allCards.find(c => c.id === AppState.selectedCardId);
+function editSelectedCard() {
+    const card = AppState.allCards.find(item => item.id === AppState.selectedCardId);
     if (!card) return;
-    
-    // Imposta modalità modifica
     AppState.isEditing = true;
     AppState.editingCardId = card.id;
-    
-    // Carica i dati nel form
-    document.getElementById('card-name').value = card.name;
-    document.getElementById('card-type').value = card.card_type;
-    document.getElementById('faction').value = card.faction_id;
-    document.getElementById('mana-cost').value = card.mana_cost;
-    document.getElementById('attack').value = card.attack || '';
-    document.getElementById('hp').value = card.hp || '';
-    document.getElementById('effect-text').value = card.effect_text || '';
-    
-    // Carica immagine
-    if (card.image_url) {
-        AppState.currentImageUrl = card.image_url;
-        document.getElementById('image-preview').innerHTML = `<img src="${card.image_url}" alt="${card.name}">`;
-    }
-    
-    // Carica effetti da effect_json
-    AppState.addedEffects = [];
-    if (card.effect_json) {
-        console.log('Effect JSON caricato:', card.effect_json);
-        
-        // Se è un array di effetti
-        if (card.effect_json.effects && Array.isArray(card.effect_json.effects)) {
-            card.effect_json.effects.forEach((eff, idx) => {
-                // Trova l'effetto corrispondente
-                const effectConfig = getAllEffects().find(e => e.id === eff.type);
-                if (effectConfig) {
-                    const effectText = generateEffectText(effectConfig.id, eff);
-                    AppState.addedEffects.push({
-                        id: effectConfig.id,
-                        name: effectConfig.name,
-                        params: eff,
-                        json: eff,
-                        text: effectText
-                    });
-                }
-            });
-        } else if (card.effect_json.type) {
-            // Effetto singolo
-            const effectConfig = getAllEffects().find(e => e.id === card.effect_json.type);
-            if (effectConfig) {
-                const effectText = generateEffectText(effectConfig.id, card.effect_json);
-                AppState.addedEffects.push({
-                    id: effectConfig.id,
-                    name: effectConfig.name,
-                    params: card.effect_json,
-                    json: card.effect_json,
-                    text: effectText
-                });
-            }
-        }
-        renderEffectsList();
-    }
-    
-    // Mostra stats se è un mostro
-    const statsRow = document.getElementById('stats-row');
-    if (['monster', 'mostrissimo'].includes(card.card_type)) {
-        statsRow.style.display = 'grid';
-    } else {
-        statsRow.style.display = 'none';
-    }
-    
-    closeModal();
-    
-    // Scroll to form
-    document.querySelector('.form-section').scrollIntoView({ behavior: 'smooth' });
-    
-    showMessage('📝 Modalità modifica attiva. Ricorda di salvare!', 'success');
+    $('card-name').value = card.name || '';
+    $('card-type').value = card.card_type || '';
+    $('faction').value = card.faction_id || '';
+    $('mana-cost').value = card.mana_cost ?? 0;
+    $('attack').value = card.attack ?? '';
+    $('hp').value = card.hp ?? '';
+    $('effect-text').value = card.effect_text || '';
+    setStatsVisibility(card.card_type);
+    AppState.originalImageUrl = card.image_url || null;
+    AppState.currentImageUrl = card.image_url || null;
+    AppState.currentImageFile = null;
+    $('image-preview').innerHTML = card.image_url ? `<img src="${card.image_url}" alt="${card.name}">` : '<p>Nessuna immagine salvata</p>';
+    fillEffectsFromJson(card.effect_json);
+    closeCardModal();
+    $('form-section').scrollIntoView?.({ behavior: 'smooth' });
+    updatePreview();
+    showMessage('Modalità modifica attiva. Sostituisci l’immagine solo se necessario, poi salva.', 'success');
 }
 
 async function deleteSelectedCard() {
-    if (!AppState.selectedCardId) return;
-    
-    const card = AppState.allCards.find(c => c.id === AppState.selectedCardId);
-    if (!card) return;
-    
-    const confirmed = confirm(`Sei sicuro di voler eliminare "${card.name}"?`);
-    if (!confirmed) return;
-    
-    try {
-        const { error } = await supabase
-            .from('cards')
-            .delete()
-            .eq('id', AppState.selectedCardId);
-        
-        if (error) {
-            throw error;
-        }
-        
-        alert(`Carta "${card.name}" eliminata!`);
-        closeModal();
-        loadAllCards();
-        
-    } catch (error) {
-        console.error('Errore eliminazione carta:', error);
-        alert(`Errore: ${error.message}`);
-    }
+    const id = AppState.selectedCardId;
+    const card = AppState.allCards.find(item => item.id === id);
+    if (!card || !confirm(`Eliminare definitivamente "${card.name}"?`)) return;
+    const { error } = await supabase.from('cards').delete().eq('id', id);
+    if (error) return alert(`Errore: ${error.message}`);
+    closeCardModal();
+    loadAllCards();
 }
 
-// ============================================
-// FUNZIONI DI SUPPORTO
-// ============================================
-
-function getFactionCode(factionId) {
-    const codes = ['CHI', 'INF', 'PES', 'BUL', 'GRO', 'CLO', 'IND'];
-    return codes[factionId - 1] || 'IND';
+function updatePreview() {
+    $('preview-name').textContent = $('card-name').value || 'Nome Carta';
+    $('preview-type').textContent = $('card-type').value || 'Tipo';
+    $('preview-mana').textContent = `⚡${$('mana-cost').value || 0}`;
+    $('preview-effect').textContent = $('effect-text').value || AppState.addedEffects.map(e => e.text).filter(Boolean).join('. ') || 'Testo effetto...';
+    const creature = CREATURE_TYPES.includes($('card-type').value);
+    $('preview-atk').style.display = creature ? 'inline' : 'none';
+    $('preview-hp').style.display = creature ? 'inline' : 'none';
+    $('preview-atk').textContent = `⚔${$('attack').value || 0}`;
+    $('preview-hp').textContent = `❤${$('hp').value || 0}`;
+    $('preview-image').innerHTML = AppState.currentImageUrl ? `<img src="${AppState.currentImageUrl}" alt="Anteprima">` : '<span>Immagine</span>';
 }
 
-// ============================================
-// EXPORT GLOBALE PER DEBUGGING
-// ============================================
-window.CardCreator = {
-    AppState,
-    supabase,
-    loadAllCards,
-    updateCardPreview,
-    addEffectToCard,
-    removeEffectFromCard,
-    compressImageToWebP,
-    resetEffects: function() {
-        localStorage.removeItem('bellum_effects');
-        location.reload();
-    },
-    testConnection: async function() {
-        const { data, error } = await supabase.from('factions').select('*').limit(1);
-        console.log('Test connessione Supabase:', data, error);
-        return { data, error };
-    }
-};
+function showMessage(text, type) {
+    const element = $('form-message');
+    element.textContent = text;
+    element.className = `form-message ${type}`;
+}
 
-console.log('✅ CardCreator esposto globalmente. Usa window.CardCreator in console.');
-console.log('✅ Supabase client:', supabase ? 'OK' : 'NULL');
+function filterCards() {
+    const search = $('search-cards').value.toLowerCase();
+    const faction = $('filter-faction').value;
+    renderCardsGrid(AppState.allCards.filter(card => (!search || card.name.toLowerCase().includes(search) || (card.effect_text || '').toLowerCase().includes(search)) && (!faction || card.faction_id === Number(faction))));
+}
+
+function bindEvents() {
+    $('card-image').addEventListener('change', handleImageChange);
+    $('card-type').addEventListener('change', event => { setStatsVisibility(event.target.value); updatePreview(); });
+    ['card-name', 'faction', 'mana-cost', 'attack', 'hp', 'effect-text'].forEach(id => $(id).addEventListener('input', updatePreview));
+    $('card-form').addEventListener('submit', saveCard);
+    $('btn-preview').addEventListener('click', event => { event.preventDefault(); updatePreview(); document.querySelector('.preview-section')?.scrollIntoView({ behavior: 'smooth' }); });
+    $('card-form').addEventListener('reset', () => setTimeout(resetEditorState, 0));
+    $('btn-refresh-cards').addEventListener('click', loadAllCards);
+    $('search-cards').addEventListener('input', filterCards);
+    $('filter-faction').addEventListener('change', filterCards);
+    $('modal-close').addEventListener('click', closeCardModal);
+    $('modal-edit').addEventListener('click', editSelectedCard);
+    $('modal-delete').addEventListener('click', deleteSelectedCard);
+}
+
+window.CardCreator = { AppState, supabase, loadAllCards, updatePreview, resetEffects: () => { localStorage.removeItem('bellum_effects'); location.reload(); } };
+
+document.addEventListener('DOMContentLoaded', () => {
+    initializeEffects();
+    bindEvents();
+    setStatsVisibility();
+    renderCardEffects();
+    loadAllCards();
+});
