@@ -53,8 +53,23 @@
                     </div>
 
                     <div class="form-group">
-                        <label for="subtype">Sottotipo</label>
-                        <input type="text" id="subtype" maxlength="60" placeholder="Es: Cultista, Bestia, Clown, Entità">
+                        <label for="rarity">Rarità</label>
+                        <select id="rarity">
+                            <option value="common">Comune</option>
+                            <option value="uncommon">Non comune</option>
+                            <option value="rare">Rara</option>
+                            <option value="ultra_rare">Ultra rara</option>
+                            <option value="legendary">Leggendaria</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="card-subtypes">Sottotipi</label>
+                    <select id="card-subtypes" multiple size="6" aria-describedby="subtype-help"></select>
+                    <p class="form-hint" id="subtype-help">Puoi selezionare più sottotipi: Ctrl+click su Windows/Linux o Cmd+click su Mac. Esempio: seleziona sia Stregone sia Umano.</p>
+                    <div class="selected-subtypes" id="selected-subtypes">
+                        <span class="no-subtypes">Nessun sottotipo selezionato</span>
                     </div>
                 </div>
 
@@ -69,16 +84,6 @@
                         <label for="sacrifice-cost">Sacrifici richiesti *</label>
                         <input type="number" id="sacrifice-cost" min="0" max="9" value="0">
                         <p class="form-hint">Per i Mostrissimi: compare come ✦ X al posto del mana.</p>
-                    </div>
-
-                    <div class="form-group">
-                        <label for="rarity">Rarità</label>
-                        <select id="rarity">
-                            <option value="common">Comune</option>
-                            <option value="uncommon">Non comune</option>
-                            <option value="rare">Rara</option>
-                            <option value="indrazzi">Indrazzi</option>
-                        </select>
                     </div>
                 </div>
 
@@ -114,9 +119,7 @@
                             <select id="effect-type">
                                 <option value="">Seleziona effetto...</option>
                             </select>
-
                             <div class="effect-params" id="effect-params"></div>
-
                             <button type="button" class="btn-add" id="btn-add-effect">+ Aggiungi Effetto</button>
                         </div>
                     </div>
@@ -154,22 +157,15 @@
                 <article class="game-card faction-none" id="preview-card">
                     <header class="game-card-titlebar">
                         <span class="game-card-name" id="preview-name">Nome Carta</span>
-                        <span class="game-card-cost" id="preview-cost" title="Costo mana">⚡<span id="preview-cost-value">0</span></span>
+                        <span class="game-card-cost" id="preview-cost" title="Costo mana">⚡0</span>
                     </header>
-
-                    <div class="game-card-art" id="preview-image">
-                        <span>Immagine</span>
-                    </div>
-
+                    <div class="game-card-art" id="preview-image"><span>Immagine</span></div>
                     <div class="game-card-type-row">
                         <span id="preview-type">Tipo</span>
                         <span class="game-card-subtype" id="preview-subtype"></span>
                     </div>
-
                     <div class="game-card-rules" id="preview-effect">Testo effetto...</div>
-
                     <div class="game-card-flavor" id="preview-flavor"></div>
-
                     <footer class="game-card-footer">
                         <span class="game-card-rarity" id="preview-rarity">Comune</span>
                         <span class="game-card-stats" id="preview-stats">
@@ -182,7 +178,7 @@
 
             <section class="compact-preview-section">
                 <h3>Anteprima Griglia 3×3</h3>
-                <p>Versione ridotta per una carta già giocata.</p>
+                <p>Versione ridotta mostrata quando la carta è già sulla scacchiera.</p>
 
                 <article class="board-card faction-none" id="compact-preview-card">
                     <header class="board-card-titlebar">
@@ -191,6 +187,7 @@
                     </header>
                     <div class="board-card-art" id="compact-preview-image">🎴</div>
                     <div class="board-card-type" id="compact-preview-type">TIPO</div>
+                    <div class="board-card-effect" id="compact-preview-effect">Testo effetto...</div>
                     <footer class="board-card-footer" id="compact-preview-stats">
                         <span id="compact-preview-atk"></span>
                         <span id="compact-preview-hp"></span>
@@ -205,7 +202,7 @@
                 </div>
 
                 <div class="search-box">
-                    <input type="text" id="search-cards" placeholder="Cerca per nome o testo...">
+                    <input type="text" id="search-cards" placeholder="Cerca per nome, testo o sottotipo...">
                     <select id="filter-faction">
                         <option value="">Tutte le fazioni</option>
                         <option value="1">Chiericanza</option>
@@ -218,12 +215,43 @@
                     </select>
                 </div>
 
-                <div class="cards-grid" id="cards-grid">
-                    <p>Caricamento carte...</p>
-                </div>
+                <div class="cards-grid" id="cards-grid"><p>Caricamento carte...</p></div>
             </section>
         </aside>
     </main>
+
+    <section class="subtypes-management-section">
+        <h2>🏷️ Gestione Sottotipi</h2>
+        <p class="section-desc">I sottotipi sono tag atomici combinabili: una carta può essere contemporaneamente <strong>Stregone</strong> e <strong>Umano</strong>. Questo rende possibili effetti che contano combinazioni specifiche.</p>
+
+        <div class="subtypes-management-container">
+            <section class="new-subtype-form">
+                <h3>Nuovo Sottotipo</h3>
+                <form id="subtype-form">
+                    <div class="form-group">
+                        <label for="subtype-name">Nome sottotipo *</label>
+                        <input type="text" id="subtype-name" required maxlength="60" placeholder="Es: Goblin, Cavaliere, Mago">
+                    </div>
+                    <div class="form-group">
+                        <label for="subtype-description">Descrizione</label>
+                        <textarea id="subtype-description" rows="3" placeholder="Descrizione opzionale del sottotipo."></textarea>
+                    </div>
+                    <div class="form-actions">
+                        <button type="submit" class="btn-primary">➕ Crea Sottotipo</button>
+                    </div>
+                    <div id="subtype-message" class="form-message" aria-live="polite"></div>
+                </form>
+            </section>
+
+            <section class="existing-subtypes-list">
+                <div class="subtype-list-heading">
+                    <h3>Sottotipi Esistenti</h3>
+                    <button type="button" class="btn-secondary" id="btn-refresh-subtypes">🔄 Ricarica</button>
+                </div>
+                <div class="subtypes-list-container" id="subtypes-list-container"><p>Caricamento sottotipi...</p></div>
+            </section>
+        </div>
+    </section>
 
     <section class="effects-management-section">
         <h2>⚙️ Gestione Effetti</h2>
@@ -232,40 +260,32 @@
         <div class="effects-management-container">
             <section class="new-effect-form">
                 <h3>Nuovo Effetto</h3>
-
                 <form id="effect-form">
                     <div class="form-row">
                         <div class="form-group">
                             <label for="effect-id">ID Effetto *</label>
                             <input type="text" id="effect-id" required placeholder="es: discard_random">
                         </div>
-
                         <div class="form-group">
                             <label for="effect-name">Nome Effetto *</label>
                             <input type="text" id="effect-name" required placeholder="es: 🗑️ Scarta carte a caso">
                         </div>
                     </div>
-
                     <div class="form-group">
                         <label for="effect-description">Descrizione *</label>
                         <input type="text" id="effect-description" required placeholder="es: Fa scartare carte casuali dalla mano bersaglio">
                     </div>
-
                     <div class="form-group">
                         <label for="effect-generate-json">Funzione generateJSON *</label>
                         <textarea id="effect-generate-json" rows="4" required placeholder="(params) => ({ type: 'discard', amount: 1, target: 'opponent', timing: 'on_play' })"></textarea>
                         <p class="form-hint">Riceve <code>params</code> e deve restituire un oggetto JSON.</p>
                     </div>
-
                     <div class="form-group">
                         <label for="effect-generate-text">Funzione generateText *</label>
                         <textarea id="effect-generate-text" rows="3" required placeholder="(params) => 'L’avversario scarta una carta a caso'"></textarea>
                         <p class="form-hint">Riceve <code>params</code> e deve restituire il testo dell’effetto.</p>
                     </div>
-
-                    <div class="form-actions">
-                        <button type="submit" class="btn-primary">➕ Crea Effetto</button>
-                    </div>
+                    <div class="form-actions"><button type="submit" class="btn-primary">➕ Crea Effetto</button></div>
                 </form>
             </section>
 

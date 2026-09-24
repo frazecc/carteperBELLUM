@@ -15,7 +15,8 @@ const RARITY_LABELS = {
     common: 'Comune',
     uncommon: 'Non comune',
     rare: 'Rara',
-    indrazzi: 'Indrazzi'
+    ultra_rare: 'Ultra rara',
+    legendary: 'Leggendaria'
 };
 const CARD_TYPE_LABELS = {
     monster: 'MOSTRO',
@@ -34,6 +35,8 @@ const AppState = {
     originalImageUrl: null,
     addedEffects: [],
     allCards: [],
+    allSubtypes: [],
+    selectedSubtypeIds: new Set(),
     selectedCardId: null,
     selectedEffectId: null,
     isEditing: false,
@@ -65,7 +68,13 @@ function getRarityLabel(rarity) {
 function showMessage(message, type = 'success') {
     const element = $('form-message');
     if (!element) return;
+    element.textContent = message;
+    element.className = `form-message ${type}`;
+}
 
+function showSubtypeMessage(message, type = 'success') {
+    const element = $('subtype-message');
+    if (!element) return;
     element.textContent = message;
     element.className = `form-message ${type}`;
 }
@@ -88,20 +97,6 @@ function setMostrissimoFields(type = $('card-type')?.value || '') {
     if (sacrificeGroup) sacrificeGroup.style.display = isMostrissimo ? 'block' : 'none';
     if (manaInput) manaInput.required = !isMostrissimo;
     if (sacrificeInput) sacrificeInput.required = isMostrissimo;
-}
-
-function synchronizeIndrazziRarity() {
-    const factionId = Number($('faction')?.value);
-    const rarity = $('rarity');
-    if (!rarity) return;
-
-    if (factionId === 7) {
-        rarity.value = 'indrazzi';
-        rarity.disabled = true;
-    } else {
-        if (rarity.value === 'indrazzi') rarity.value = 'rare';
-        rarity.disabled = false;
-    }
 }
 
 function setImageRequired(required) {
@@ -127,6 +122,20 @@ function formatRulesText(value) {
     return escaped
         .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
         .replace(/\n/g, '<br>');
+}
+
+function plainText(value) {
+    return String(value || '')
+        .replace(/\*\*(.*?)\*\*/g, '$1')
+        .replace(/\n/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+}
+
+function compactEffectText(value) {
+    const text = plainText(value);
+    if (!text) return 'Nessun effetto.';
+    return text.length > 92 ? `${text.slice(0, 89).trimEnd()}…` : text;
 }
 
 function applyFactionClasses(cardElement, factionId) {
@@ -474,6 +483,225 @@ function deleteSelectedEffect() {
     renderEffectsManagementList();
 }
 
+function getSelectedSubtypeIds() {
+    const selector = $('card-subtypes');
+    if (!selector) return [];
+    return Array.from(selector.selectedOptions).map((option) => option.value);
+}
+
+function getSelectedSubtypeNames() {
+    const selectedIds = new Set(getSelectedSubtypeIds());
+    return AppState.allSubtypes
+        .filter((subtype) => selectedIds.has(subtype.id))
+        .sort((a, b) => a.sort_order - b.sort_order || a.name.localeCompare(b.name, 'it'))
+        .map((subtype) => subtype.name);
+}
+
+function renderSubtypeSelector(selectedIds = AppState.selectedSubtypeIds) {
+    const selector = $('card-subtypes');
+    if (!selector) return;
+
+    const selected = selectedIds instanceof Set ? selectedIds : new Set(selectedIds || []);
+    selector.innerHTML = '';
+
+    const activeSubtypes = AppState.allSubtypes
+        .filter((subtype) => subtype.is_active)
+        .sort((a, b) => a.sort_order - b.sort_order || a.name.localeCompare(b.name, 'it'));
+
+    activeSubtypes.forEach((subtype) => {
+        const option = document.createElement('option');
+        option.value = subtype.id;
+        option.textContent = subtype.name;
+        option.title = subtype.description || subtype.name;
+        option.selected = selected.has(subtype.id);
+        selector.appendChild(option);
+    });
+
+    AppState.selectedSubtypeIds = new Set(getSelectedSubtypeIds());
+    renderSelectedSubtypeBadges();
+}
+
+function renderSelectedSubtypeBadges() {
+    const container = $('selected-subtypes');
+    if (!container) return;
+
+    const names = getSelectedSubtypeNames();
+    container.innerHTML = '';
+
+    if (!names.length) {
+        container.innerHTML = '<span class="no-subtypes">Nessun sottotipo selezionato</span>';
+        return;
+    }
+
+    names.forEach((name) => {
+        const badge = document.createElement('span');
+        badge.className = 'subtype-badge';
+        badge.textContent = name;
+        container.appendChild(badge);
+    });
+}
+
+function renderSubtypesManagementList() {
+    const container = $('subtypes-list-container');
+    if (!container) return;
+
+    container.innerHTML = '';
+
+    if (!AppState.allSubtypes.length) {
+        container.innerHTML = '<p class="no-effects">Nessun sottotipo presente.</p>';
+        return;
+    }
+
+    AppState.allSubtypes
+        .sort((a, b) => a.sort_order - b.sort_order || a.name.localeCompare(b.name, 'it'))
+        .forEach((subtype) => {
+            const item = document.createElement('div');
+            item.className = `subtype-card ${subtype.is_active ? '' : 'subtype-inactive'}`;
+
+            const info = document.createElement('div');
+            info.className = 'subtype-card-info';
+
+            const name = document.createElement('div');
+            name.className = 'subtype-card-name';
+            name.textContent = subtype.name;
+
+            const description = document.createElement('div');
+            description.className = 'subtype-card-description';
+            description.textContent = subtype.description || 'Nessuna descrizione.';
+
+            const status = document.createElement('div');
+            status.className = 'subtype-card-status';
+            status.textContent = subtype.is_active ? 'Attivo' : 'Disattivato';
+
+            const toggleButton = document.createElement('button');
+            toggleButton.type = 'button';
+            toggleButton.className = subtype.is_active ? 'btn-secondary' : 'btn-view';
+            toggleButton.textContent = subtype.is_active ? 'Disattiva' : 'Riattiva';
+            toggleButton.addEventListener('click', () => toggleSubtypeStatus(subtype));
+
+            info.append(name, description, status);
+            item.append(info, toggleButton);
+            container.appendChild(item);
+        });
+}
+
+async function loadSubtypes() {
+    const { data, error } = await supabase
+        .from('card_subtypes')
+        .select('*')
+        .order('sort_order', { ascending: true })
+        .order('name', { ascending: true });
+
+    if (error) {
+        console.error('Errore caricamento sottotipi:', error);
+        showSubtypeMessage(`❌ Errore caricamento sottotipi: ${error.message}`, 'error');
+        return false;
+    }
+
+    AppState.allSubtypes = data || [];
+    renderSubtypeSelector(AppState.selectedSubtypeIds);
+    renderSubtypesManagementList();
+    return true;
+}
+
+async function createSubtype(event) {
+    event.preventDefault();
+
+    const name = $('subtype-name').value.trim();
+    const description = $('subtype-description').value.trim() || null;
+
+    if (name.length < 2) {
+        showSubtypeMessage('Inserisci un nome di almeno 2 caratteri.', 'error');
+        return;
+    }
+
+    const normalizedName = name.toLowerCase();
+    const maxSortOrder = AppState.allSubtypes.reduce(
+        (maximum, subtype) => Math.max(maximum, Number(subtype.sort_order) || 0),
+        0
+    );
+
+    const { error } = await supabase
+        .from('card_subtypes')
+        .insert({
+            name,
+            normalized_name: normalizedName,
+            description,
+            sort_order: maxSortOrder + 10,
+            is_active: true
+        });
+
+    if (error) {
+        const message = error.code === '23505'
+            ? 'Esiste già un sottotipo con questo nome.'
+            : error.message;
+        showSubtypeMessage(`❌ Errore: ${message}`, 'error');
+        return;
+    }
+
+    $('subtype-form').reset();
+    showSubtypeMessage(`✅ Sottotipo "${name}" creato.`, 'success');
+    await loadSubtypes();
+}
+
+async function toggleSubtypeStatus(subtype) {
+    const nextStatus = !subtype.is_active;
+    const action = nextStatus ? 'riattivare' : 'disattivare';
+
+    if (!confirm(`Vuoi ${action} il sottotipo "${subtype.name}"?`)) return;
+
+    const { error } = await supabase
+        .from('card_subtypes')
+        .update({ is_active: nextStatus })
+        .eq('id', subtype.id);
+
+    if (error) {
+        showSubtypeMessage(`❌ Errore: ${error.message}`, 'error');
+        return;
+    }
+
+    if (!nextStatus) {
+        AppState.selectedSubtypeIds.delete(subtype.id);
+    }
+
+    showSubtypeMessage(`✅ Sottotipo "${subtype.name}" ${nextStatus ? 'riattivato' : 'disattivato'}.`, 'success');
+    await loadSubtypes();
+    updatePreview();
+}
+
+function initializeSubtypes() {
+    $('card-subtypes')?.addEventListener('change', () => {
+        AppState.selectedSubtypeIds = new Set(getSelectedSubtypeIds());
+        renderSelectedSubtypeBadges();
+        updatePreview();
+    });
+
+    $('subtype-form')?.addEventListener('submit', createSubtype);
+    $('btn-refresh-subtypes')?.addEventListener('click', loadSubtypes);
+}
+
+async function saveCardSubtypeLinks(cardId, subtypeIds) {
+    const { error: deleteError } = await supabase
+        .from('card_subtype_links')
+        .delete()
+        .eq('card_id', cardId);
+
+    if (deleteError) throw deleteError;
+
+    if (!subtypeIds.length) return;
+
+    const rows = subtypeIds.map((subtypeId) => ({
+        card_id: cardId,
+        subtype_id: subtypeId
+    }));
+
+    const { error: insertError } = await supabase
+        .from('card_subtype_links')
+        .insert(rows);
+
+    if (insertError) throw insertError;
+}
+
 function readBlobAsDataUrl(blob) {
     return new Promise((resolve, reject) => {
         const reader = new FileReader();
@@ -537,6 +765,7 @@ function resetEditorState() {
     AppState.currentImageUrl = null;
     AppState.originalImageUrl = null;
     AppState.addedEffects = [];
+    AppState.selectedSubtypeIds = new Set();
     AppState.isEditing = false;
     AppState.editingCardId = null;
 
@@ -547,7 +776,7 @@ function resetEditorState() {
     setImageRequired(true);
     setStatsVisibility();
     setMostrissimoFields();
-    synchronizeIndrazziRarity();
+    renderSubtypeSelector(AppState.selectedSubtypeIds);
     renderCardEffects();
     updatePreview();
 }
@@ -622,20 +851,18 @@ function buildEffectPayload() {
 
 function collectCardData() {
     const type = $('card-type').value;
-    const factionId = Number($('faction').value);
-    const rarity = factionId === 7 ? 'indrazzi' : $('rarity').value;
     const automaticText = AppState.addedEffects.map((effect) => effect.text).filter(Boolean).join('. ');
 
     return {
         name: $('card-name').value.trim(),
-        faction_id: factionId,
+        faction_id: Number($('faction').value),
         card_type: type,
         mana_cost: type === 'mostrissimo' ? 0 : Number($('mana-cost').value || 0),
         sacrifice_cost: type === 'mostrissimo' ? Number($('sacrifice-cost').value || 0) : 0,
         attack: isCreatureType(type) ? Number($('attack').value || 0) : null,
         hp: isCreatureType(type) ? Number($('hp').value || 0) : null,
-        subtype: $('subtype').value.trim() || null,
-        rarity,
+        subtype: getSelectedSubtypeNames().join(' ') || null,
+        rarity: $('rarity').value,
         flavor_text: $('flavor-text').value.trim() || null,
         effect_text: $('effect-text').value.trim() || automaticText,
         effect_json: buildEffectPayload()
@@ -663,6 +890,7 @@ async function saveCard(event) {
         return;
     }
 
+    const subtypeIds = getSelectedSubtypeIds();
     const hasExistingImage = Boolean(AppState.originalImageUrl);
     const hasNewImage = AppState.currentImageFile instanceof Blob;
 
@@ -703,7 +931,7 @@ async function saveCard(event) {
         let savedCard;
 
         if (AppState.isEditing) {
-            showMessage('Aggiornamento carta ed effetti in corso...', 'success');
+            showMessage('Aggiornamento carta, effetti e sottotipi in corso...', 'success');
 
             const { data, error } = await supabase
                 .from('cards')
@@ -715,7 +943,7 @@ async function saveCard(event) {
             if (error) throw error;
             savedCard = data;
         } else {
-            showMessage('Creazione carta ed effetti in corso...', 'success');
+            showMessage('Creazione carta, effetti e sottotipi in corso...', 'success');
 
             const { data, error } = await supabase
                 .from('cards')
@@ -726,6 +954,8 @@ async function saveCard(event) {
             if (error) throw error;
             savedCard = data;
         }
+
+        await saveCardSubtypeLinks(savedCard.id, subtypeIds);
 
         if (hasNewImage) {
             showMessage('Upload immagine WebP in corso...', 'success');
@@ -760,7 +990,14 @@ async function loadAllCards() {
 
     const { data, error } = await supabase
         .from('cards')
-        .select('*, factions(name, code, color_hex)')
+        .select(`
+            *,
+            factions(name, code, color_hex),
+            card_subtype_links(
+                subtype_id,
+                card_subtypes(id, name, sort_order, is_active)
+            )
+        `)
         .order('created_at', { ascending: false });
 
     if (error) {
@@ -768,7 +1005,14 @@ async function loadAllCards() {
         return;
     }
 
-    AppState.allCards = data || [];
+    AppState.allCards = (data || []).map((card) => ({
+        ...card,
+        structuredSubtypes: (card.card_subtype_links || [])
+            .map((link) => link.card_subtypes)
+            .filter(Boolean)
+            .sort((a, b) => a.sort_order - b.sort_order || a.name.localeCompare(b.name, 'it'))
+    }));
+
     renderCardsGrid(AppState.allCards);
 }
 
@@ -791,7 +1035,8 @@ function renderCardsGrid(cards) {
         const cost = card.card_type === 'mostrissimo'
             ? `✦${card.sacrifice_cost || 0}`
             : `⚡${card.mana_cost}`;
-        meta.textContent = `${card.factions?.name || '???'} • ${getCardTypeLabel(card.card_type)} • ${cost}`;
+        const subtypeText = card.structuredSubtypes?.map((subtype) => subtype.name).join(' ') || card.subtype || '';
+        meta.textContent = `${card.factions?.name || '???'} • ${getCardTypeLabel(card.card_type)}${subtypeText ? ` — ${subtypeText}` : ''} • ${cost}`;
 
         item.append(name, meta);
         item.addEventListener('click', () => selectCard(card));
@@ -819,16 +1064,16 @@ function editSelectedCard() {
     AppState.currentImageFile = null;
     AppState.originalImageUrl = card.image_url || null;
     AppState.currentImageUrl = card.image_url || null;
+    AppState.selectedSubtypeIds = new Set((card.structuredSubtypes || []).map((subtype) => subtype.id));
 
     $('editor-title').textContent = `Modifica: ${card.name}`;
     $('btn-save-card').textContent = '💾 Salva Modifiche';
     $('card-name').value = card.name || '';
     $('card-type').value = card.card_type || '';
     $('faction').value = card.faction_id || '';
-    $('subtype').value = card.subtype || '';
     $('mana-cost').value = card.mana_cost ?? 0;
     $('sacrifice-cost').value = card.sacrifice_cost ?? 0;
-    $('rarity').value = card.rarity || (Number(card.faction_id) === 7 ? 'indrazzi' : 'common');
+    $('rarity').value = card.rarity || 'common';
     $('attack').value = card.attack ?? '';
     $('hp').value = card.hp ?? '';
     $('effect-text').value = card.effect_text || '';
@@ -837,7 +1082,7 @@ function editSelectedCard() {
 
     setStatsVisibility(card.card_type);
     setMostrissimoFields(card.card_type);
-    synchronizeIndrazziRarity();
+    renderSubtypeSelector(AppState.selectedSubtypeIds);
     setImageRequired(!AppState.originalImageUrl);
 
     $('image-preview').innerHTML = AppState.originalImageUrl
@@ -853,7 +1098,7 @@ function editSelectedCard() {
         block: 'start'
     });
 
-    showMessage('📝 Modalità modifica attiva. Foto, statistiche, effetti e testi sono stati caricati.', 'success');
+    showMessage('📝 Modalità modifica attiva. Foto, effetti e sottotipi sono stati caricati.', 'success');
 }
 
 async function deleteSelectedCard() {
@@ -879,8 +1124,7 @@ function updatePreview() {
     const factionId = Number($('faction').value);
     const isMostrissimo = type === 'mostrissimo';
     const creature = isCreatureType(type);
-    const subtype = $('subtype').value.trim();
-    const rarity = factionId === 7 ? 'indrazzi' : $('rarity').value;
+    const subtypeNames = getSelectedSubtypeNames();
     const rulesText = $('effect-text').value.trim() || AppState.addedEffects.map((effect) => effect.text).filter(Boolean).join('. ');
     const flavorText = $('flavor-text').value.trim();
     const costValue = isMostrissimo
@@ -894,11 +1138,11 @@ function updatePreview() {
     $('preview-cost').textContent = costValue;
     $('preview-cost').title = isMostrissimo ? 'Sacrifici richiesti' : 'Costo mana';
     $('preview-type').textContent = getCardTypeLabel(type);
-    $('preview-subtype').textContent = subtype ? `— ${subtype}` : '';
+    $('preview-subtype').textContent = subtypeNames.length ? `— ${subtypeNames.join(' ')}` : '';
     $('preview-effect').innerHTML = formatRulesText(rulesText || 'Testo effetto...');
     $('preview-flavor').textContent = flavorText;
     $('preview-flavor').style.display = flavorText ? 'block' : 'none';
-    $('preview-rarity').textContent = getRarityLabel(rarity);
+    $('preview-rarity').textContent = getRarityLabel($('rarity').value);
 
     $('preview-atk').style.display = creature ? 'inline-flex' : 'none';
     $('preview-hp').style.display = creature ? 'inline-flex' : 'none';
@@ -914,6 +1158,7 @@ function updatePreview() {
     $('compact-preview-name').textContent = $('card-name').value || 'Nome Carta';
     $('compact-preview-cost').textContent = costValue;
     $('compact-preview-type').textContent = getCardTypeLabel(type);
+    $('compact-preview-effect').textContent = compactEffectText(rulesText);
     $('compact-preview-atk').textContent = creature ? `⚔ ${$('attack').value || 0}` : '';
     $('compact-preview-hp').textContent = creature ? `❤ ${$('hp').value || 0}` : '';
     $('compact-preview-stats').style.display = creature ? 'flex' : 'none';
@@ -927,11 +1172,12 @@ function filterCards() {
     const factionId = $('filter-faction').value;
 
     const filtered = AppState.allCards.filter((card) => {
+        const subtypeText = card.structuredSubtypes?.map((subtype) => subtype.name).join(' ') || card.subtype || '';
         const matchesSearch = !search ||
             card.name.toLowerCase().includes(search) ||
             (card.effect_text || '').toLowerCase().includes(search) ||
             (card.flavor_text || '').toLowerCase().includes(search) ||
-            (card.subtype || '').toLowerCase().includes(search);
+            subtypeText.toLowerCase().includes(search);
 
         const matchesFaction = !factionId || card.faction_id === Number(factionId);
         return matchesSearch && matchesFaction;
@@ -949,24 +1195,9 @@ function bindEvents() {
         updatePreview();
     });
 
-    $('faction')?.addEventListener('change', () => {
-        synchronizeIndrazziRarity();
-        updatePreview();
-    });
-
-    $('rarity')?.addEventListener('change', updatePreview);
-
-    [
-        'card-name',
-        'subtype',
-        'mana-cost',
-        'sacrifice-cost',
-        'attack',
-        'hp',
-        'effect-text',
-        'flavor-text'
-    ].forEach((id) => {
+    ['card-name', 'faction', 'rarity', 'mana-cost', 'sacrifice-cost', 'attack', 'hp', 'effect-text', 'flavor-text'].forEach((id) => {
         $(id)?.addEventListener('input', updatePreview);
+        $(id)?.addEventListener('change', updatePreview);
     });
 
     $('card-form')?.addEventListener('submit', saveCard);
@@ -996,6 +1227,7 @@ window.CardCreator = {
     AppState,
     supabase,
     loadAllCards,
+    loadSubtypes,
     updatePreview,
     buildEffectPayload,
     buildStoredEffect,
@@ -1005,14 +1237,15 @@ window.CardCreator = {
     }
 };
 
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
     initializeEffects();
+    initializeSubtypes();
     bindEvents();
     setStatsVisibility();
     setMostrissimoFields();
-    synchronizeIndrazziRarity();
     setImageRequired(true);
     renderCardEffects();
     updatePreview();
-    loadAllCards();
+    await loadSubtypes();
+    await loadAllCards();
 });

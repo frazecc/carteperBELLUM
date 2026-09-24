@@ -123,6 +123,7 @@ input:disabled {
 
 .form-section,
 .preview-section,
+.subtypes-management-section,
 .effects-management-section {
     border: 1px solid var(--line);
     border-radius: 0.85rem;
@@ -135,13 +136,14 @@ input:disabled {
 }
 
 .preview-section {
-    padding: clamp(1rem, 2vw, 1.5rem);
     position: sticky;
     top: 1rem;
+    padding: clamp(1rem, 2vw, 1.5rem);
 }
 
 .form-section h2,
 .preview-section h2,
+.subtypes-management-section h2,
 .effects-management-section h2 {
     margin: 0 0 1rem;
     color: var(--gold);
@@ -236,6 +238,26 @@ input:disabled {
     color: #17191f;
 }
 
+.form-group select[multiple] {
+    min-height: 9.2rem;
+    border-color: #6c603f;
+    background: linear-gradient(135deg, #12151e, #171a23);
+    padding: 0.35rem;
+}
+
+.form-group select[multiple] option {
+    margin: 0.1rem 0;
+    border-radius: 0.2rem;
+    color: #e9e9ed;
+    background: transparent;
+    padding: 0.4rem 0.52rem;
+}
+
+.form-group select[multiple] option:checked {
+    color: #1c1508;
+    background: linear-gradient(90deg, #f2d587, #c89135);
+}
+
 .form-hint {
     margin: 0.3rem 0 0;
     color: var(--ink-muted);
@@ -248,6 +270,38 @@ input:disabled {
     border-radius: 0.2rem;
     color: #f8dd9d;
     background: #11131b;
+}
+
+.selected-subtypes {
+    display: flex;
+    min-height: 2.2rem;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    align-items: center;
+    margin-top: 0.5rem;
+    border: 1px solid #414756;
+    border-radius: 0.4rem;
+    background: #151821;
+    padding: 0.42rem;
+}
+
+.subtype-badge {
+    display: inline-flex;
+    align-items: center;
+    border: 1px solid #857240;
+    border-radius: 99rem;
+    color: #f8df9d;
+    background: linear-gradient(180deg, #46402d, #2e2a20);
+    padding: 0.12rem 0.52rem;
+    font-size: 0.76rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+}
+
+.no-subtypes {
+    color: var(--ink-muted);
+    font-size: 0.8rem;
+    font-style: italic;
 }
 
 .image-preview {
@@ -697,9 +751,9 @@ input:disabled {
 
 .board-card {
     display: grid;
-    grid-template-rows: auto minmax(5rem, 1fr) auto auto;
+    grid-template-rows: auto minmax(4.5rem, 1fr) auto minmax(2.45rem, auto) auto;
     width: min(100%, 12.2rem);
-    height: 16.6rem;
+    height: 18rem;
     margin: 0.75rem auto 0;
     overflow: hidden;
     border: 0.26rem solid var(--faction-color);
@@ -768,6 +822,21 @@ input:disabled {
     white-space: nowrap;
 }
 
+.board-card-effect {
+    display: -webkit-box;
+    overflow: hidden;
+    border-bottom: 1px solid #6f7178;
+    color: #25262c;
+    background: #c8c9ce;
+    padding: 0.22rem 0.32rem;
+    font-size: 0.67rem;
+    font-weight: 600;
+    line-height: 1.02;
+    text-align: left;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 3;
+}
+
 .board-card-footer {
     display: flex;
     min-height: 1.75rem;
@@ -779,10 +848,7 @@ input:disabled {
     font-weight: 800;
 }
 
-/* ------------------------------------------------------------
-   Variabili di colore delle sette fazioni
-   ------------------------------------------------------------ */
-
+/* Variabili colore sette fazioni */
 .faction-chi {
     --faction-color: var(--chi);
     --faction-light: var(--chi-light);
@@ -832,7 +898,8 @@ input:disabled {
     padding-top: 1.1rem;
 }
 
-.cards-list-heading {
+.cards-list-heading,
+.subtype-list-heading {
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -902,13 +969,19 @@ input:disabled {
     white-space: nowrap;
 }
 
-/* Gestione effetti */
+/* Gestione sottotipi ed effetti */
+.subtypes-management-section,
 .effects-management-section {
     width: min(1480px, calc(100% - 2rem));
-    margin: 1.5rem auto 3rem;
+    margin: 1.5rem auto;
     padding: clamp(1rem, 2.4vw, 2rem);
 }
 
+.effects-management-section {
+    margin-bottom: 3rem;
+}
+
+.subtypes-management-container,
 .effects-management-container {
     display: grid;
     grid-template-columns: minmax(0, 1fr) minmax(18rem, 0.8fr);
@@ -916,6 +989,8 @@ input:disabled {
     margin-top: 1.1rem;
 }
 
+.new-subtype-form,
+.existing-subtypes-list,
 .new-effect-form,
 .existing-effects-list {
     border: 1px solid #4b5162;
@@ -924,6 +999,8 @@ input:disabled {
     padding: 1rem;
 }
 
+.new-subtype-form h3,
+.existing-subtypes-list h3,
 .new-effect-form h3,
 .existing-effects-list h3 {
     margin: 0 0 0.85rem;
@@ -933,6 +1010,7 @@ input:disabled {
     font-weight: 400;
 }
 
+.subtypes-list-container,
 .effects-list-container {
     display: grid;
     max-height: 34rem;
@@ -941,29 +1019,56 @@ input:disabled {
     padding-right: 0.25rem;
 }
 
+.subtype-card,
 .effect-card {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.7rem;
     border: 1px solid #4d5261;
     border-radius: 0.45rem;
     background: #232632;
     padding: 0.65rem;
 }
 
-.effect-card-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 0.6rem;
+.subtype-card-info {
+    min-width: 0;
 }
 
+.subtype-card-name,
 .effect-card-title {
     color: #f2db9f;
     font-weight: 800;
 }
 
+.subtype-card-description,
 .effect-card-body {
-    margin-top: 0.3rem;
+    margin-top: 0.2rem;
     color: var(--ink-muted);
     font-size: 0.82rem;
+}
+
+.subtype-card-status {
+    display: inline-block;
+    margin-top: 0.28rem;
+    border-radius: 99rem;
+    color: #b6f4ca;
+    background: rgba(39, 146, 75, 0.26);
+    padding: 0.08rem 0.4rem;
+    font-size: 0.65rem;
+    font-weight: 800;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+}
+
+.subtype-inactive {
+    border-color: #66515a;
+    opacity: 0.64;
+}
+
+.subtype-inactive .subtype-card-status {
+    color: #ffd1d5;
+    background: rgba(161, 51, 64, 0.3);
 }
 
 /* Modali */
@@ -1033,6 +1138,7 @@ input:disabled {
         order: -1;
     }
 
+    .subtypes-management-container,
     .effects-management-container {
         grid-template-columns: 1fr;
     }
@@ -1040,6 +1146,7 @@ input:disabled {
 
 @media (max-width: 650px) {
     .creator-container,
+    .subtypes-management-section,
     .effects-management-section {
         width: min(100% - 1rem, 1480px);
     }
@@ -1064,8 +1171,19 @@ input:disabled {
         min-height: 30rem;
     }
 
-    .cards-list-heading {
+    .cards-list-heading,
+    .subtype-list-heading {
         align-items: flex-start;
         flex-direction: column;
+    }
+
+    .subtype-card,
+    .effect-card {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+
+    .board-card {
+        width: 11.5rem;
     }
 }
