@@ -1,9 +1,10 @@
 /**
- * Bellum Penumbrum - Configurazione Effetti
- * Aggiungi qui nuovi effetti disponibili nel creatore carte
+ * Bellum Penumbrum - Gestione Effetti Dinamici
+ * Gli effetti vengono salvati in localStorage e possono essere creati/eliminati dall'interfaccia
  */
 
-export const EFFECTS_CONFIG = [
+// Effetti di default (se non ce ne sono già salvati)
+const DEFAULT_EFFECTS = [
     {
         id: 'draw',
         name: '📚 Pesca carte',
@@ -28,13 +29,8 @@ export const EFFECTS_CONFIG = [
                 default: 'self'
             }
         ],
-        generateJSON: (params) => ({
-            type: 'draw',
-            amount: parseInt(params.amount) || 1,
-            target: params.target || 'self',
-            timing: 'on_play'
-        }),
-        generateText: (params) => `Pesca ${params.amount || 1} carta${(params.amount || 1) > 1 ? 'e' : ''}`
+        generateJSON: '(params) => ({ type: "draw", amount: parseInt(params.amount) || 1, target: params.target || "self", timing: "on_play" })',
+        generateText: '(params) => `Pesca ${params.amount || 1} carta${(params.amount || 1) > 1 ? "e" : ""}`'
     },
     
     {
@@ -62,24 +58,8 @@ export const EFFECTS_CONFIG = [
                 default: 'any_creature'
             }
         ],
-        generateJSON: (params) => ({
-            type: 'damage',
-            amount: parseInt(params.amount) || 1,
-            target: params.target || 'any_creature',
-            timing: 'on_play'
-        }),
-        generateText: (params) => {
-            const amount = params.amount || 1;
-            const target = params.target || 'any_creature';
-            
-            if (target === 'all_creatures') {
-                return `Infliggi ${amount} danno a tutte le creature`;
-            } else if (target === 'random_creature') {
-                return `Infliggi ${amount} danno a una creatura casuale`;
-            } else {
-                return `Infliggi ${amount} danno a una creatura`;
-            }
-        }
+        generateJSON: '(params) => ({ type: "damage", amount: parseInt(params.amount) || 1, target: params.target || "any_creature", timing: "on_play" })',
+        generateText: '(params) => { const amount = params.amount || 1; const target = params.target || "any_creature"; if (target === "all_creatures") return `Infliggi ${amount} danno a tutte le creature`; else if (target === "random_creature") return `Infliggi ${amount} danno a una creatura casuale`; else return `Infliggi ${amount} danno a una creatura`; }'
     },
     
     {
@@ -96,13 +76,8 @@ export const EFFECTS_CONFIG = [
                 default: 3
             }
         ],
-        generateJSON: (params) => ({
-            type: 'damage',
-            amount: parseInt(params.amount) || 1,
-            target: 'opponent',
-            timing: 'on_play'
-        }),
-        generateText: (params) => `Infliggi ${params.amount || 3} danno all'avversario`
+        generateJSON: '(params) => ({ type: "damage", amount: parseInt(params.amount) || 1, target: "opponent", timing: "on_play" })',
+        generateText: '(params) => `Infliggi ${params.amount || 3} danno all\'avversario`'
     },
     
     {
@@ -130,24 +105,8 @@ export const EFFECTS_CONFIG = [
                 default: 'self'
             }
         ],
-        generateJSON: (params) => ({
-            type: 'heal',
-            amount: parseInt(params.amount) || 1,
-            target: params.target || 'self',
-            timing: 'on_play'
-        }),
-        generateText: (params) => {
-            const amount = params.amount || 3;
-            const target = params.target || 'self';
-            
-            if (target === 'all_creatures') {
-                return `Cura ${amount} HP a tutte le tue creature`;
-            } else if (target === 'any_creature') {
-                return `Cura ${amount} HP a una creatura`;
-            } else {
-                return `Guadagna ${amount} vita`;
-            }
-        }
+        generateJSON: '(params) => ({ type: "heal", amount: parseInt(params.amount) || 1, target: params.target || "self", timing: "on_play" })',
+        generateText: '(params) => { const amount = params.amount || 3; const target = params.target || "self"; if (target === "all_creatures") return `Cura ${amount} HP a tutte le tue creature`; else if (target === "any_creature") return `Cura ${amount} HP a una creatura`; else return `Guadagna ${amount} vita`; }'
     },
     
     {
@@ -185,35 +144,8 @@ export const EFFECTS_CONFIG = [
                 default: 'any_creature'
             }
         ],
-        generateJSON: (params) => ({
-            type: 'buff',
-            stat: 'attack',
-            amount: parseInt(params.amount) || 2,
-            duration: params.duration || 'permanent',
-            target: params.target || 'any_creature',
-            timing: 'on_play'
-        }),
-        generateText: (params) => {
-            const amount = params.amount || 2;
-            const target = params.target || 'any_creature';
-            const duration = params.duration || 'permanent';
-            
-            let text = `Una creatura guadagna +${amount} attack`;
-            
-            if (target === 'all_creatures') {
-                text = `Tutte le tue creature guadagnano +${amount} attack`;
-            }
-            
-            if (duration === 'permanent') {
-                text += ' permanente';
-            } else if (duration === 'turn') {
-                text += ' fino alla fine del turno';
-            } else {
-                text += ' fino a fine partita';
-            }
-            
-            return text;
-        }
+        generateJSON: '(params) => ({ type: "buff", stat: "attack", amount: parseInt(params.amount) || 2, duration: params.duration || "permanent", target: params.target || "any_creature", timing: "on_play" })',
+        generateText: '(params) => { const amount = params.amount || 2; const target = params.target || "any_creature"; const duration = params.duration || "permanent"; let text = `Una creatura guadagna +${amount} attack`; if (target === "all_creatures") text = `Tutte le tue creature guadagnano +${amount} attack`; if (duration === "permanent") text += " permanente"; else if (duration === "turn") text += " fino alla fine del turno"; return text; }'
     },
     
     {
@@ -251,35 +183,8 @@ export const EFFECTS_CONFIG = [
                 default: 'any_creature'
             }
         ],
-        generateJSON: (params) => ({
-            type: 'buff',
-            stat: 'hp',
-            amount: parseInt(params.amount) || 2,
-            duration: params.duration || 'permanent',
-            target: params.target || 'any_creature',
-            timing: 'on_play'
-        }),
-        generateText: (params) => {
-            const amount = params.amount || 2;
-            const target = params.target || 'any_creature';
-            const duration = params.duration || 'permanent';
-            
-            let text = `Una creatura guadagna +${amount} HP`;
-            
-            if (target === 'all_creatures') {
-                text = `Tutte le tue creature guadagnano +${amount} HP`;
-            }
-            
-            if (duration === 'permanent') {
-                text += ' permanente';
-            } else if (duration === 'turn') {
-                text += ' fino alla fine del turno';
-            } else {
-                text += ' fino a fine partita';
-            }
-            
-            return text;
-        }
+        generateJSON: '(params) => ({ type: "buff", stat: "hp", amount: parseInt(params.amount) || 2, duration: params.duration || "permanent", target: params.target || "any_creature", timing: "on_play" })',
+        generateText: '(params) => { const amount = params.amount || 2; const target = params.target || "any_creature"; const duration = params.duration || "permanent"; let text = `Una creatura guadagna +${amount} HP`; if (target === "all_creatures") text = `Tutte le tue creature guadagnano +${amount} HP`; if (duration === "permanent") text += " permanente"; else if (duration === "turn") text += " fino alla fine del turno"; return text; }'
     },
     
     {
@@ -299,22 +204,8 @@ export const EFFECTS_CONFIG = [
                 default: 'any_creature'
             }
         ],
-        generateJSON: (params) => ({
-            type: 'destroy',
-            target: params.target || 'any_creature',
-            timing: 'on_play'
-        }),
-        generateText: (params) => {
-            const target = params.target || 'any_creature';
-            
-            if (target === 'weak_creature') {
-                return 'Distruggi una creatura con 3 o meno HP';
-            } else if (target === 'strong_creature') {
-                return 'Distruggi una creatura con 5 o più HP';
-            } else {
-                return 'Distruggi una creatura';
-            }
-        }
+        generateJSON: '(params) => ({ type: "destroy", target: params.target || "any_creature", timing: "on_play" })',
+        generateText: '(params) => { const target = params.target || "any_creature"; if (target === "weak_creature") return "Distruggi una creatura con 3 o meno HP"; else if (target === "strong_creature") return "Distruggi una creatura con 5 o più HP"; else return "Distruggi una creatura"; }'
     },
     
     {
@@ -333,20 +224,8 @@ export const EFFECTS_CONFIG = [
                 default: 'any_creature'
             }
         ],
-        generateJSON: (params) => ({
-            type: 'return_hand',
-            target: params.target || 'any_creature',
-            timing: 'on_play'
-        }),
-        generateText: (params) => {
-            const target = params.target || 'any_creature';
-            
-            if (target === 'opponent_creature') {
-                return 'Una creatura avversaria torna in mano al proprietario';
-            } else {
-                return 'Una creatura torna in mano al proprietario';
-            }
-        }
+        generateJSON: '(params) => ({ type: "return_hand", target: params.target || "any_creature", timing: "on_play" })',
+        generateText: '(params) => { const target = params.target || "any_creature"; if (target === "opponent_creature") return "Una creatura avversaria torna in mano al proprietario"; else return "Una creatura torna in mano al proprietario"; }'
     },
     
     {
@@ -373,22 +252,8 @@ export const EFFECTS_CONFIG = [
                 default: 'opponent'
             }
         ],
-        generateJSON: (params) => ({
-            type: 'mill',
-            amount: parseInt(params.amount) || 3,
-            target: params.target || 'opponent',
-            timing: 'on_play'
-        }),
-        generateText: (params) => {
-            const amount = params.amount || 3;
-            const target = params.target || 'opponent';
-            
-            if (target === 'opponent') {
-                return `L'avversario mette le prime ${amount} carte del suo mazzo nel cimitero`;
-            } else {
-                return `Metti le prime ${amount} carte del tuo mazzo nel cimitero`;
-            }
-        }
+        generateJSON: '(params) => ({ type: "mill", amount: parseInt(params.amount) || 3, target: params.target || "opponent", timing: "on_play" })',
+        generateText: '(params) => { const amount = params.amount || 3; const target = params.target || "opponent"; if (target === "opponent") return `L\'avversario mette le prime ${amount} carte del suo mazzo nel cimitero`; else return `Metti le prime ${amount} carte del tuo mazzo nel cimitero`; }'
     },
     
     {
@@ -408,22 +273,8 @@ export const EFFECTS_CONFIG = [
                 default: 'any'
             }
         ],
-        generateJSON: (params) => ({
-            type: 'search',
-            criteria: params.criteria || 'any',
-            timing: 'on_play'
-        }),
-        generateText: (params) => {
-            const criteria = params.criteria || 'any';
-            
-            if (criteria === 'monster') {
-                return 'Cerca un mostro nel tuo mazzo e aggiungilo alla mano';
-            } else if (criteria === 'faction') {
-                return 'Cerca una carta di una fazione specifica nel tuo mazzo e aggiungila alla mano';
-            } else {
-                return 'Cerca una carta nel tuo mazzo e aggiungila alla mano';
-            }
-        }
+        generateJSON: '(params) => ({ type: "search", criteria: params.criteria || "any", timing: "on_play" })',
+        generateText: '(params) => { const criteria = params.criteria || "any"; if (criteria === "monster") return "Cerca un mostro nel tuo mazzo e aggiungilo alla mano"; else if (criteria === "faction") return "Cerca una carta di una fazione specifica nel tuo mazzo e aggiungila alla mano"; else return "Cerca una carta nel tuo mazzo e aggiungila alla mano"; }'
     },
     
     {
@@ -456,47 +307,8 @@ export const EFFECTS_CONFIG = [
                 default: 1
             }
         ],
-        generateJSON: (params) => ({
-            type: 'summon_token',
-            attack: parseInt(params.attack) || 1,
-            hp: parseInt(params.hp) || 1,
-            amount: parseInt(params.amount) || 1,
-            timing: 'on_play'
-        }),
-        generateText: (params) => {
-            const atk = params.attack || 1;
-            const hp = params.hp || 1;
-            const amount = params.amount || 1;
-            
-            if (amount > 1) {
-                return `Evoca ${amount} token ${atk}/${hp}`;
-            } else {
-                return `Evoca un token ${atk}/${hp}`;
-            }
-        }
-    },
-    
-    {
-        id: 'swap_stats',
-        name: '🔄 Scambia stats',
-        description: 'Scambia attack e HP di una creatura',
-        params: [
-            {
-                name: 'target',
-                label: 'Target',
-                type: 'select',
-                options: [
-                    { value: 'any_creature', label: 'Una creatura' }
-                ],
-                default: 'any_creature'
-            }
-        ],
-        generateJSON: (params) => ({
-            type: 'swap_stats',
-            target: params.target || 'any_creature',
-            timing: 'on_play'
-        }),
-        generateText: () => 'Scambia attack e HP di una creatura'
+        generateJSON: '(params) => ({ type: "summon_token", attack: parseInt(params.attack) || 1, hp: parseInt(params.hp) || 1, amount: parseInt(params.amount) || 1, timing: "on_play" })',
+        generateText: '(params) => { const atk = params.attack || 1; const hp = params.hp || 1; const amount = params.amount || 1; if (amount > 1) return `Evoca ${amount} token ${atk}/${hp}`; else return `Evoca un token ${atk}/${hp}`; }'
     },
     
     {
@@ -504,45 +316,127 @@ export const EFFECTS_CONFIG = [
         name: '🚫 Contrasta',
         description: 'Contrasta una stregoneria o istantaneo avversario',
         params: [],
-        generateJSON: () => ({
-            type: 'counter',
-            target: 'spell',
-            timing: 'instant'
-        }),
-        generateText: () => 'Contrasta una stregoneria o istantaneo avversario'
+        generateJSON: '() => ({ type: "counter", target: "spell", timing: "instant" })',
+        generateText: '() => "Contrasta una stregoneria o istantaneo avversario"'
     }
 ];
 
 /**
- * Genera il JSON per un effetto
+ * Ottieni tutti gli effetti (da localStorage o default)
  */
-export function generateEffectJSON(effectId, params) {
-    const effect = EFFECTS_CONFIG.find(e => e.id === effectId);
-    if (!effect) return null;
-    
-    return effect.generateJSON(params);
+export function getAllEffects() {
+    const stored = localStorage.getItem('bellum_effects');
+    if (stored) {
+        try {
+            return JSON.parse(stored);
+        } catch (e) {
+            console.error('Errore parsing effetti:', e);
+        }
+    }
+    return DEFAULT_EFFECTS;
 }
 
 /**
- * Genera il testo descrittivo per un effetto
+ * Salva effetti in localStorage
  */
-export function generateEffectText(effectId, params) {
-    const effect = EFFECTS_CONFIG.find(e => e.id === effectId);
-    if (!effect) return '';
+export function saveEffects(effects) {
+    localStorage.setItem('bellum_effects', JSON.stringify(effects));
+}
+
+/**
+ * Aggiungi un nuovo effetto
+ */
+export function addEffect(effect) {
+    const effects = getAllEffects();
     
-    return effect.generateText(params);
+    // Controlla se ID esiste già
+    if (effects.find(e => e.id === effect.id)) {
+        throw new Error(`Effetto con ID "${effect.id}" già esistente`);
+    }
+    
+    effects.push(effect);
+    saveEffects(effects);
+    return effects;
+}
+
+/**
+ * Elimina un effetto per ID
+ */
+export function deleteEffect(effectId) {
+    const effects = getAllEffects();
+    const filtered = effects.filter(e => e.id !== effectId);
+    saveEffects(filtered);
+    return filtered;
 }
 
 /**
  * Ottieni la configurazione di un effetto
  */
 export function getEffectConfig(effectId) {
-    return EFFECTS_CONFIG.find(e => e.id === effectId);
+    const effects = getAllEffects();
+    return effects.find(e => e.id === effectId);
 }
 
 /**
- * Ottieni tutti gli effetti disponibili
+ * Genera il JSON per un effetto
  */
-export function getAllEffects() {
-    return EFFECTS_CONFIG;
+export function generateEffectJSON(effectId, params) {
+    const effect = getEffectConfig(effectId);
+    if (!effect) return null;
+    
+    try {
+        const fn = new Function('params', `return ${effect.generateJSON}`);
+        return fn(params || {});
+    } catch (e) {
+        console.error('Errore generazione JSON effetto:', e);
+        return null;
+    }
+}
+
+/**
+ * Genera il testo descrittivo per un effetto
+ */
+export function generateEffectText(effectId, params) {
+    const effect = getEffectConfig(effectId);
+    if (!effect) return '';
+    
+    try {
+        const fn = new Function('params', `return ${effect.generateText}`);
+        return fn(params || {});
+    } catch (e) {
+        console.error('Errore generazione testo effetto:', e);
+        return '';
+    }
+}
+
+/**
+ * Resetta effetti ai default
+ */
+export function resetEffectsToDefault() {
+    localStorage.removeItem('bellum_effects');
+    return DEFAULT_EFFECTS;
+}
+
+/**
+ * Esporta effetti come JSON
+ */
+export function exportEffects() {
+    return JSON.stringify(getAllEffects(), null, 2);
+}
+
+/**
+ * Importa effetti da JSON
+ */
+export function importEffects(jsonString) {
+    try {
+        const effects = JSON.parse(jsonString);
+        if (!Array.isArray(effects)) {
+            throw new Error('Formato non valido');
+        }
+        saveEffects(effects);
+        return effects;
+    } catch (e) {
+        console.error('Errore import effetti:', e);
+        throw e;
+    }
 }

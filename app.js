@@ -1,10 +1,11 @@
 /**
  * Bellum Penumbrum - Creatore Carte
  * Gestione creazione, modifica e eliminazione carte su Supabase
+ * CON COMPRESSIONE IMMAGINI WEBP E GESTIONE EFFETTI DINAMICI
  */
 
 import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/main/+esm.js';
-import { getAllEffects, generateEffectJSON, generateEffectText, getEffectConfig } from './effects.js';
+import { getAllEffects, generateEffectJSON, generateEffectText, getEffectConfig, addEffect, deleteEffect } from './effects.js';
 
 // ============================================
 // CONFIGURAZIONE SUPABASE
@@ -22,7 +23,8 @@ const AppState = {
     currentImageUrl: null,
     addedEffects: [],
     allCards: [],
-    selectedCardId: null
+    selectedCardId: null,
+    selectedEffectId: null
 };
 
 // ============================================
@@ -32,28 +34,28 @@ document.addEventListener('DOMContentLoaded', () => {
     console.log('Creatore Carte inizializzato');
     
     initEffectSelector();
+    initEffectsManagement();
     setupEventListeners();
     loadAllCards();
 });
 
 // ============================================
-// GESTIONE EFFETTI
+// GESTIONE EFFETTI - SELECTOR
 // ============================================
 function initEffectSelector() {
+    populateEffectSelector();
+}
+
+function populateEffectSelector() {
     const effectSelect = document.getElementById('effect-type');
+    effectSelect.innerHTML = '<option value="">Seleziona effetto...</option>';
     
-    // Popola select con tutti gli effetti
     getAllEffects().forEach(effect => {
         const option = document.createElement('option');
         option.value = effect.id;
         option.textContent = effect.name;
         option.title = effect.description;
         effectSelect.appendChild(option);
-    });
-    
-    // Listener cambio effetto
-    effectSelect.addEventListener('change', (e) => {
-        renderEffectParams(e.target.value);
     });
 }
 
@@ -143,6 +145,12 @@ function addEffect() {
 
 function renderEffectsList() {
     const effectsList = document.getElementById('effects-list');
+    
+    if (AppState.addedEffects.length === 0) {
+        effectsList.innerHTML = '<p class="no-effects">Nessun effetto aggiunto. Seleziona dalla lista in basso.</p>';
+        return;
+    }
+    
     effectsList.innerHTML = '';
     
     AppState.addedEffects.forEach((effect, index) => {
@@ -181,9 +189,191 @@ function removeEffect(index) {
 }
 
 // ============================================
+// GESTIONE EFFETTI - MANAGEMENT SECTION
+// ============================================
+function initEffectsManagement() {
+    renderEffectsManagementList();
+    
+    // Form nuovo effetto
+    document.getElementById('effect-form').addEventListener('submit', handleNewEffectSubmit);
+    document.getElementById('btn-add-param').addEventListener('click', addParamToEffect);
+    
+    // Modali
+    document.getElementById('effect-modal-close').addEventListener('click', closeEffectModal);
+    document.getElementById('effect-modal-delete').addEventListener('click', confirmDeleteEffect);
+}
+
+function renderEffectsManagementList() {
+    const container = document.getElementById('effects-list-container');
+    container.innerHTML = '';
+    
+    getAllEffects().forEach(effect => {
+        const card = document.createElement('div');
+        card.className = 'effect-card';
+        
+        const header = document.createElement('div');
+        header.className = 'effect-card-header';
+        
+        const title = document.createElement('span');
+        title.className = 'effect-card-title';
+        title.textContent = effect.name;
+        
+        const actions = document.createElement('div');
+        actions.className = 'effect-card-actions';
+        
+        const viewBtn = document.createElement('button');
+        viewBtn.className = 'btn-view';
+        viewBtn.textContent = 'Vedi';
+        viewBtn.addEventListener('click', () => viewEffect(effect.id));
+        
+        actions.appendChild(viewBtn);
+        
+        header.appendChild(title);
+        header.appendChild(actions);
+        
+        const body = document.createElement('div');
+        body.className = 'effect-card-body';
+        body.textContent = effect.description;
+        
+        card.appendChild(header);
+        card.appendChild(body);
+        
+        container.appendChild(card);
+    });
+}
+
+function handleNewEffectSubmit(event) {
+    event.preventDefault();
+    
+    const newEffect = {
+        id: document.getElementById('effect-id').value.trim(),
+        name: document.getElementById('effect-name').value.trim(),
+        description: document.getElementById('effect-description').value.trim(),
+        params: [], // TODO: Implementare builder parametri
+        generateJSON: document.getElementById('effect-generate-json').value.trim(),
+        generateText: document.getElementById('effect-generate-text').value.trim()
+    };
+    
+    try {
+        addEffect(newEffect);
+        alert(`Effetto "${newEffect.name}" creato con successo!`);
+        
+        // Reset form
+        document.getElementById('effect-form').reset();
+        
+        // Ricarica liste
+        populateEffectSelector();
+        renderEffectsManagementList();
+        
+    } catch (error) {
+        alert(`Errore: ${error.message}`);
+    }
+}
+
+function addParamToEffect() {
+    // TODO: Implementare UI builder parametri
+    alert('Funzionalità in sviluppo: aggiungi parametri via codice JSON per ora');
+}
+
+function viewEffect(effectId) {
+    const effect = getEffectConfig(effectId);
+    if (!effect) return;
+    
+    AppState.selectedEffectId = effectId;
+    
+    const modal = document.getElementById('effect-modal');
+    const title = document.getElementById('effect-modal-title');
+    
+    title.textContent = effect.name;
+    modal.style.display = 'flex';
+}
+
+function closeEffectModal() {
+    const modal = document.getElementById('effect-modal');
+    modal.style.display = 'none';
+    AppState.selectedEffectId = null;
+}
+
+function confirmDeleteEffect() {
+    if (!AppState.selectedEffectId) return;
+    
+    const effect = getEffectConfig(AppState.selectedEffectId);
+    if (!effect) return;
+    
+    const confirmed = confirm(`Eliminare l'effetto "${effect.name}"?`);
+    if (!confirmed) return;
+    
+    try {
+        deleteEffect(AppState.selectedEffectId);
+        alert('Effetto eliminato!');
+        
+        closeEffectModal();
+        populateEffectSelector();
+        renderEffectsManagementList();
+        
+    } catch (error) {
+        alert(`Errore: ${error.message}`);
+    }
+}
+
+// ============================================
+// COMPRESSIONE IMMAGINE WEBP
+// ============================================
+async function compressImageToWebP(file, quality = 0.7) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        
+        reader.onload = (e) => {
+            const img = new Image();
+            
+            img.onload = () => {
+                const canvas = document.createElement('canvas');
+                const ctx = canvas.getContext('2d');
+                
+                // Ridimensiona se troppo grande (max 800px)
+                let width = img.width;
+                let height = img.height;
+                const maxSize = 800;
+                
+                if (width > maxSize || height > maxSize) {
+                    const ratio = Math.min(maxSize / width, maxSize / height);
+                    width = Math.floor(width * ratio);
+                    height = Math.floor(height * ratio);
+                }
+                
+                canvas.width = width;
+                canvas.height = height;
+                
+                // Disegna immagine
+                ctx.drawImage(img, 0, 0, width, height);
+                
+                // Converti in WebP
+                canvas.toBlob(
+                    (blob) => {
+                        if (blob) {
+                            resolve(blob);
+                        } else {
+                            reject(new Error('Conversione WebP fallita'));
+                        }
+                    },
+                    'image/webp',
+                    quality
+                );
+            };
+            
+            img.onerror = () => reject(new Error('Errore caricamento immagine'));
+            img.src = e.target.result;
+        };
+        
+        reader.onerror = () => reject(new Error('Errore lettura file'));
+        reader.readAsDataURL(file);
+    });
+}
+
+// ============================================
 // GESTIONE IMMAGINE
 // ============================================
-function handleImageUpload(event) {
+async function handleImageUpload(event) {
     const file = event.target.files[0];
     
     if (!file) return;
@@ -196,39 +386,45 @@ function handleImageUpload(event) {
         return;
     }
     
-    // Verifica dimensione (max 5MB)
-    if (file.size > 5 * 1024 * 1024) {
-        alert('Immagine troppo grande. Max 5MB.');
+    try {
+        // Comprimi in WebP
+        showMessage('Compressione immagine in corso...', 'success');
+        const compressedBlob = await compressImageToWebP(file, 0.7);
+        
+        AppState.currentImageFile = compressedBlob;
+        
+        // Mostra anteprima
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            AppState.currentImageUrl = e.target.result;
+            
+            const preview = document.getElementById('image-preview');
+            preview.innerHTML = `<img src="${e.target.result}" alt="Anteprima">`;
+            
+            // Aggiorna anche anteprima carta
+            updateCardPreview();
+            
+            showMessage('Immagine compressa con successo!', 'success');
+        };
+        reader.readAsDataURL(compressedBlob);
+        
+    } catch (error) {
+        console.error('Errore compressione:', error);
+        alert(`Errore compressione immagine: ${error.message}`);
         event.target.value = '';
-        return;
     }
-    
-    AppState.currentImageFile = file;
-    
-    // Mostra anteprima
-    const reader = new FileReader();
-    reader.onload = (e) => {
-        AppState.currentImageUrl = e.target.result;
-        
-        const preview = document.getElementById('image-preview');
-        preview.innerHTML = `<img src="${e.target.result}" alt="Anteprima">`;
-        
-        // Aggiorna anche anteprima carta
-        updateCardPreview();
-    };
-    reader.readAsDataURL(file);
 }
 
 async function uploadImageToSupabase(cardId, factionCode) {
     if (!AppState.currentImageFile) return null;
     
-    const filePath = `${factionCode}/${cardId}.png`;
+    const filePath = `${factionCode}/${cardId}.webp`;
     
     const { data, error } = await supabase.storage
         .from('card-images')
         .upload(filePath, AppState.currentImageFile, {
             upsert: true,
-            contentType: AppState.currentImageFile.type
+            contentType: 'image/webp'
         });
     
     if (error) {
@@ -277,7 +473,11 @@ function setupEventListeners() {
     document.getElementById('card-form').addEventListener('submit', handleFormSubmit);
     
     // Anteprima
-    document.getElementById('btn-preview').addEventListener('click', updateCardPreview);
+    document.getElementById('btn-preview').addEventListener('click', (e) => {
+        e.preventDefault();
+        updateCardPreview();
+        alert('Anteprima aggiornata! Guarda la sezione a destra.');
+    });
     
     // Reset form
     document.getElementById('card-form').addEventListener('reset', () => {
@@ -298,7 +498,7 @@ function setupEventListeners() {
     document.getElementById('search-cards').addEventListener('input', filterCards);
     document.getElementById('filter-faction').addEventListener('change', filterCards);
     
-    // Modale
+    // Modale carta
     document.getElementById('modal-close').addEventListener('click', closeModal);
     document.getElementById('modal-edit').addEventListener('click', editSelectedCard);
     document.getElementById('modal-delete').addEventListener('click', deleteSelectedCard);
@@ -316,11 +516,11 @@ async function handleFormSubmit(event) {
         faction_id: parseInt(document.getElementById('faction').value),
         card_type: document.getElementById('card-type').value,
         mana_cost: parseInt(document.getElementById('mana-cost').value) || 0,
-        attack: parseInt(document.getElementById('attack').value) || null,
-        hp: parseInt(document.getElementById('hp').value) || null,
+        attack: ['monster', 'mostrissimo'].includes(cardData.card_type) ? (parseInt(document.getElementById('attack').value) || null) : null,
+        hp: ['monster', 'mostrissimo'].includes(cardData.card_type) ? (parseInt(document.getElementById('hp').value) || null) : null,
         effect_text: document.getElementById('effect-text').value.trim(),
-        is_boss: document.getElementById('is-boss').checked,
-        is_indrazzi: document.getElementById('is-indrazzi').checked
+        is_boss: false, // Rimosso
+        is_indrazzi: false // Rimosso (gestito come fazione 7)
     };
     
     // Verifica immagine
@@ -372,7 +572,7 @@ async function handleFormSubmit(event) {
             throw updateError;
         }
         
-        showMessage(`Carta "${card.name}" creata con successo!`, 'success');
+        showMessage(`Carta "${card.name}" creata con successo! Immagine: WebP compresso.`, 'success');
         
         // Reset form
         document.getElementById('card-form').reset();
@@ -397,9 +597,11 @@ function showMessage(message, type) {
     messageEl.textContent = message;
     messageEl.className = `form-message ${type}`;
     
-    setTimeout(() => {
-        messageEl.className = 'form-message';
-    }, 5000);
+    if (type === 'success') {
+        setTimeout(() => {
+            messageEl.className = 'form-message';
+        }, 5000);
+    }
 }
 
 // ============================================
@@ -551,23 +753,11 @@ async function editSelectedCard() {
     document.getElementById('attack').value = card.attack || '';
     document.getElementById('hp').value = card.hp || '';
     document.getElementById('effect-text').value = card.effect_text || '';
-    document.getElementById('is-boss').checked = card.is_boss || false;
-    document.getElementById('is-indrazzi').checked = card.is_indrazzi || false;
-    
-    // Parse effect_json
-    if (card.effect_json) {
-        // TODO: Implementare parsing e ricostruzione effetti
-        console.log('Effect JSON:', card.effect_json);
-    }
     
     // Carica immagine
     if (card.image_url) {
-        const img = new Image();
-        img.src = card.image_url;
-        img.onload = () => {
-            AppState.currentImageUrl = card.image_url;
-            document.getElementById('image-preview').innerHTML = `<img src="${card.image_url}" alt="${card.name}">`;
-        };
+        AppState.currentImageUrl = card.image_url;
+        document.getElementById('image-preview').innerHTML = `<img src="${card.image_url}" alt="${card.name}">`;
     }
     
     closeModal();
@@ -609,24 +799,9 @@ async function deleteSelectedCard() {
 // FUNZIONI DI SUPPORTO
 // ============================================
 
-/**
- * Ottieni il codice fazione da un ID
- */
 function getFactionCode(factionId) {
     const codes = ['CHI', 'INF', 'PES', 'BUL', 'GRO', 'CLO', 'IND'];
     return codes[factionId - 1] || 'IND';
-}
-
-/**
- * Combina più effetti in un unico JSON
- */
-function combineEffects(effects) {
-    if (effects.length === 0) return null;
-    if (effects.length === 1) return effects[0].json;
-    
-    return {
-        effects: effects.map(e => e.json)
-    };
 }
 
 // Esporta funzioni globali per debugging
@@ -636,5 +811,6 @@ window.CardCreator = {
     loadAllCards,
     updateCardPreview,
     addEffect,
-    removeEffect
+    removeEffect,
+    compressImageToWebP
 };

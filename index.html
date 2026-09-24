@@ -9,7 +9,7 @@
 <body>
     <header class="app-header">
         <h1>🃏 Creatore Carte - Bellum Penumbrum</h1>
-        <p>Gestisci le carte del tuo gioco su Supabase</p>
+        <p>Gestisci carte ed effetti del tuo gioco su Supabase</p>
     </header>
 
     <main class="creator-container">
@@ -33,7 +33,7 @@
                             <option value="mostrissimo">Mostrissimo</option>
                             <option value="sorcery">Stregoneria</option>
                             <option value="instant">Istantaneo</option>
-                            <option value="field_spell">Field Spell</option>
+                            <option value="terraforma">Terraforma</option>
                             <option value="aura">Aura</option>
                         </select>
                     </div>
@@ -62,7 +62,7 @@
                 </div>
 
                 <!-- Stats (solo per mostri) -->
-                <div class="form-row" id="stats-row">
+                <div class="form-row" id="stats-row" style="display:none;">
                     <div class="form-group">
                         <label for="attack">Attack</label>
                         <input type="number" id="attack" min="0" max="20" value="0">
@@ -81,6 +81,7 @@
                     <div class="image-preview" id="image-preview">
                         <p>Anteprima immagine</p>
                     </div>
+                    <p class="form-hint">L'immagine verrà compressa automaticamente in WebP (~50KB)</p>
                 </div>
 
                 <!-- Effetti -->
@@ -89,6 +90,7 @@
                     <div class="effects-builder">
                         <div class="effects-list" id="effects-list">
                             <!-- Effetti aggiunti dinamicamente -->
+                            <p class="no-effects">Nessun effetto aggiunto. Seleziona dalla lista in basso.</p>
                         </div>
                         
                         <div class="effects-selector">
@@ -109,24 +111,7 @@
                 <!-- Testo Effetto (descrizione) -->
                 <div class="form-group">
                     <label for="effect-text">Testo Effetto (descrizione)</label>
-                    <textarea id="effect-text" rows="3" placeholder="Es: Pesca 2 carte"></textarea>
-                </div>
-
-                <!-- Checkbox speciali -->
-                <div class="form-row">
-                    <div class="form-group checkbox-group">
-                        <label>
-                            <input type="checkbox" id="is-boss">
-                            Boss Card
-                        </label>
-                    </div>
-                    
-                    <div class="form-group checkbox-group">
-                        <label>
-                            <input type="checkbox" id="is-indrazzi">
-                            Indrazzi (Incolore)
-                        </label>
-                    </div>
+                    <textarea id="effect-text" rows="3" placeholder="Es: Pesca 2 carte. Verrà generato automaticamente dagli effetti selezionati."></textarea>
                 </div>
 
                 <!-- Bottoni Azione -->
@@ -188,7 +173,71 @@
         </section>
     </main>
 
-    <!-- Modale Modifica/Elimina -->
+    <!-- Sezione Gestione Effetti -->
+    <section class="effects-management-section">
+        <h2>⚙️ Gestione Effetti</h2>
+        <p class="section-desc">Crea nuovi effetti personalizzati o modifica quelli esistenti. Gli effetti appariranno immediatamente nel selettore.</p>
+        
+        <div class="effects-management-container">
+            <!-- Form Nuovo Effetto -->
+            <div class="new-effect-form">
+                <h3>Nuovo Effetto</h3>
+                
+                <form id="effect-form">
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="effect-id">ID Effetto (unico) *</label>
+                            <input type="text" id="effect-id" required placeholder="es: draw_cards">
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="effect-name">Nome Effetto *</label>
+                            <input type="text" id="effect-name" required placeholder="es: 📚 Pesca carte">
+                        </div>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="effect-description">Descrizione *</label>
+                        <input type="text" id="effect-description" required placeholder="es: Fa pescare un numero di carte">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>Parametri (opzionale)</label>
+                        <div id="effect-params-builder">
+                            <p class="form-hint">Aggiungi parametri numerici o select per personalizzare l'effetto</p>
+                        </div>
+                        <button type="button" class="btn-add-param" id="btn-add-param">+ Aggiungi Parametro</button>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="effect-generate-json">Funzione generateJSON (JavaScript) *</label>
+                        <textarea id="effect-generate-json" rows="4" required placeholder="return { type: 'draw', amount: params.amount || 1 };"></textarea>
+                        <p class="form-hint">La funzione riceve `params` e deve returnare un oggetto JSON</p>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="effect-generate-text">Funzione generateText (JavaScript) *</label>
+                        <textarea id="effect-generate-text" rows="3" required placeholder="return `Pesca ${params.amount || 1} carta`;"></textarea>
+                        <p class="form-hint">La funzione riceve `params` e deve returnare una stringa di testo</p>
+                    </div>
+                    
+                    <div class="form-actions">
+                        <button type="submit" class="btn-primary">➕ Crea Effetto</button>
+                    </div>
+                </form>
+            </div>
+            
+            <!-- Lista Effetti Esistenti -->
+            <div class="existing-effects-list">
+                <h3>Effetti Esistenti</h3>
+                <div class="effects-list-container" id="effects-list-container">
+                    <!-- Effetti caricati -->
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Modale Modifica/Elimina Carta -->
     <div id="card-modal" class="modal-overlay" style="display: none;">
         <div class="modal-content">
             <h3 id="modal-title">Carta</h3>
@@ -196,6 +245,17 @@
                 <button class="btn-primary" id="modal-edit">✏️ Modifica</button>
                 <button class="btn-danger" id="modal-delete">🗑️ Elimina</button>
                 <button class="btn-secondary" id="modal-close">Chiudi</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modale Effetto -->
+    <div id="effect-modal" class="modal-overlay" style="display: none;">
+        <div class="modal-content">
+            <h3 id="effect-modal-title">Effetto</h3>
+            <div class="modal-actions">
+                <button class="btn-danger" id="effect-modal-delete">🗑️ Elimina</button>
+                <button class="btn-secondary" id="effect-modal-close">Chiudi</button>
             </div>
         </div>
     </div>
