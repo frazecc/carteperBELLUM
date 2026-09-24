@@ -24,7 +24,9 @@ const AppState = {
     addedEffects: [],
     allCards: [],
     selectedCardId: null,
-    selectedEffectId: null
+    selectedEffectId: null,
+    isEditing: false,
+    editingCardId: null
 };
 
 // ============================================
@@ -520,6 +522,8 @@ function setupEventListeners() {
             AppState.addedEffects = [];
             AppState.currentImageFile = null;
             AppState.currentImageUrl = null;
+            AppState.isEditing = false;
+            AppState.editingCardId = null;
             renderEffectsList();
             document.getElementById('image-preview').innerHTML = '<p>Anteprima immagine</p>';
             updateCardPreview();
@@ -559,12 +563,6 @@ async function handleFormSubmit(event) {
         is_indrazzi: false
     };
     
-    // Verifica immagine
-    if (!AppState.currentImageFile) {
-        showMessage('Devi caricare un\'immagine!', 'error');
-        return;
-    }
-    
     // Genera effect_json
     if (AppState.addedEffects.length > 0) {
         if (AppState.addedEffects.length === 1) {
@@ -577,49 +575,142 @@ async function handleFormSubmit(event) {
     }
     
     try {
-        showMessage('Creazione carta in corso...', 'success');
-        
-        // 1. Crea la carta (senza image_url)
-        const { data: card, error: cardError } = await supabase
-            .from('cards')
-            .insert([cardData])
-            .select()
-            .single();
-        
-        if (cardError) {
-            console.error('Errore inserimento carta:', cardError);
-            throw cardError;
+        // MODALITÀ MODIFICA
+        if (AppState.isEditing && AppState.editingCardId) {
+            showMessage('Aggiornamento carta in corso...', 'success');
+            
+            // Controllo duplicati (solo se è cambiato il nome)
+            const originalCard = AppState.allCards.find(c => c.id === AppState.editingCardId);
+            if (originalCard && originalCard.name !== cardData.name) {
+                const duplicate = AppState.allCards.find(c => 
+                    c.name === cardData.name && 
+                    c.faction_id === cardData.faction_id && 
+                    c.id !== AppState.editingCardId
+                );
+                
+                if (duplicate) {
+                    const confirmed = confirm(
+                        `⚠️ Esiste già una carta con questo nome nella stessa fazione!\n\n` +
+                        `Carta esistente: "${duplicate.name}" (ID: ${duplicate.id})\n\n` +
+                        `Vuoi sovrascriverla? Quella esistente andrà persa per sempre.`
+                    );
+                    
+                    if (!confirmed) {
+                        showMessage('Operazione annullata', 'error');
+                        return;
+                    }
+                    
+                    // Elimina la carta duplicata prima di aggiornare
+                    await supabase.from('cards').delete().eq('id', duplicate.id);
+                }
+            }
+            
+            // Aggiorna carta esistente
+            const { data: card, error: updateError } = await supabase
+                .from('cards')
+                .update(cardData)
+                .eq('id', AppState.editingCardId)
+                .select()
+                .single();
+            
+            if (updateError) {
+                console.error('Errore aggiornamento carta:', updateError);
+                throw updateError;
+            }
+            
+            // Upload nuova immagine (se caricata)
+            if (AppState.currentImageFile) {
+                showMessage('Upload nuova immagine...', 'success');
+                const factionCodes = ['CHI', 'INF', 'PES', 'BUL', 'GRO', 'CLO', 'IND'];
+                const factionCode = factionCodes[cardData.faction_id - 1];
+                
+                const imageUrl = await uploadImageToSupabase(card.id, factionCode);
+                
+                if (imageUrl) {
+                    await supabase
+                        .from('cards')
+                        .update({ image_url: imageUrl })
+                        .eq('id', card.id);
+                }
+            }
+            
+            showMessage(`✅ Carta "${card.name}" aggiornata con successo!`, 'success');
+            
+        } else {
+            // NUOVA CARTA
+            showMessage('Creazione carta in corso...', 'success');
+            
+            // Verifica immagine (solo per nuove carte)
+            if (!AppState.currentImageFile) {
+                showMessage('Devi caricare un\'immagine!', 'error');
+                return;
+            }
+            
+            // Controllo duplicati prima di creare
+            const duplicate = AppState.allCards.find(c => 
+                c.name === cardData.name && c.faction_id === cardData.faction_id
+            );
+            
+            if (duplicate) {
+                const confirmed = confirm(
+                    `⚠️ Esiste già una carta con questo nome nella stessa fazione!\n\n` +
+                    `Carta esistente: "${duplicate.name}" (ID: ${duplicate.id})\n\n` +
+                    `Vuoi sovrascriverla? Quella esistente andrà persa per sempre.`
+                );
+                
+                if (!confirmed) {
+                    showMessage('Operazione annullata', 'error');
+                    return;
+                }
+                
+                // Elimina la carta duplicata
+                await supabase.from('cards').delete().eq('id', duplicate.id);
+            }
+            
+            // 1. Crea la carta (senza image_url)
+            const { data: card, error: cardError } = await supabase
+                .from('cards')
+                .insert([cardData])
+                .select()
+                .single();
+            
+            if (cardError) {
+                console.error('Errore inserimento carta:', cardError);
+                throw cardError;
+            }
+            
+            // 2. Carica immagine
+            const factionCodes = ['CHI', 'INF', 'PES', 'BUL', 'GRO', 'CLO', 'IND'];
+            const factionCode = factionCodes[cardData.faction_id - 1];
+            
+            showMessage('Upload immagine...', 'success');
+            const imageUrl = await uploadImageToSupabase(card.id, factionCode);
+            
+            if (!imageUrl) {
+                throw new Error('Upload immagine fallito');
+            }
+            
+            // 3. Aggiorna carta con image_url
+            const { error: updateError } = await supabase
+                .from('cards')
+                .update({ image_url: imageUrl })
+                .eq('id', card.id);
+            
+            if (updateError) {
+                console.error('Errore aggiornamento image_url:', updateError);
+                throw updateError;
+            }
+            
+            showMessage(`✅ Carta "${card.name}" creata con successo! Immagine: WebP compresso.`, 'success');
         }
-        
-        // 2. Carica immagine
-        const factionCodes = ['CHI', 'INF', 'PES', 'BUL', 'GRO', 'CLO', 'IND'];
-        const factionCode = factionCodes[cardData.faction_id - 1];
-        
-        showMessage('Upload immagine...', 'success');
-        const imageUrl = await uploadImageToSupabase(card.id, factionCode);
-        
-        if (!imageUrl) {
-            throw new Error('Upload immagine fallito');
-        }
-        
-        // 3. Aggiorna carta con image_url
-        const { error: updateError } = await supabase
-            .from('cards')
-            .update({ image_url: imageUrl })
-            .eq('id', card.id);
-        
-        if (updateError) {
-            console.error('Errore aggiornamento image_url:', updateError);
-            throw updateError;
-        }
-        
-        showMessage(`✅ Carta "${card.name}" creata con successo! Immagine: WebP compresso.`, 'success');
         
         // Reset form
         document.getElementById('card-form').reset();
         AppState.addedEffects = [];
         AppState.currentImageFile = null;
         AppState.currentImageUrl = null;
+        AppState.isEditing = false;
+        AppState.editingCardId = null;
         renderEffectsList();
         document.getElementById('image-preview').innerHTML = '<p>Anteprima immagine</p>';
         updateCardPreview();
@@ -628,7 +719,7 @@ async function handleFormSubmit(event) {
         loadAllCards();
         
     } catch (error) {
-        console.error('Errore creazione carta:', error);
+        console.error('Errore creazione/aggiornamento carta:', error);
         showMessage(`❌ Errore: ${error.message}`, 'error');
     }
 }
@@ -792,6 +883,10 @@ async function editSelectedCard() {
     const card = AppState.allCards.find(c => c.id === AppState.selectedCardId);
     if (!card) return;
     
+    // Imposta modalità modifica
+    AppState.isEditing = true;
+    AppState.editingCardId = card.id;
+    
     // Carica i dati nel form
     document.getElementById('card-name').value = card.name;
     document.getElementById('card-type').value = card.card_type;
@@ -807,10 +902,58 @@ async function editSelectedCard() {
         document.getElementById('image-preview').innerHTML = `<img src="${card.image_url}" alt="${card.name}">`;
     }
     
+    // Carica effetti da effect_json
+    AppState.addedEffects = [];
+    if (card.effect_json) {
+        console.log('Effect JSON caricato:', card.effect_json);
+        
+        // Se è un array di effetti
+        if (card.effect_json.effects && Array.isArray(card.effect_json.effects)) {
+            card.effect_json.effects.forEach((eff, idx) => {
+                // Trova l'effetto corrispondente
+                const effectConfig = getAllEffects().find(e => e.id === eff.type);
+                if (effectConfig) {
+                    const effectText = generateEffectText(effectConfig.id, eff);
+                    AppState.addedEffects.push({
+                        id: effectConfig.id,
+                        name: effectConfig.name,
+                        params: eff,
+                        json: eff,
+                        text: effectText
+                    });
+                }
+            });
+        } else if (card.effect_json.type) {
+            // Effetto singolo
+            const effectConfig = getAllEffects().find(e => e.id === card.effect_json.type);
+            if (effectConfig) {
+                const effectText = generateEffectText(effectConfig.id, card.effect_json);
+                AppState.addedEffects.push({
+                    id: effectConfig.id,
+                    name: effectConfig.name,
+                    params: card.effect_json,
+                    json: card.effect_json,
+                    text: effectText
+                });
+            }
+        }
+        renderEffectsList();
+    }
+    
+    // Mostra stats se è un mostro
+    const statsRow = document.getElementById('stats-row');
+    if (['monster', 'mostrissimo'].includes(card.card_type)) {
+        statsRow.style.display = 'grid';
+    } else {
+        statsRow.style.display = 'none';
+    }
+    
     closeModal();
     
     // Scroll to form
     document.querySelector('.form-section').scrollIntoView({ behavior: 'smooth' });
+    
+    showMessage('📝 Modalità modifica attiva. Ricorda di salvare!', 'success');
 }
 
 async function deleteSelectedCard() {
