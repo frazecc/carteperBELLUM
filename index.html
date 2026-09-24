@@ -204,20 +204,19 @@
                     <div class="form-group">
                         <label>Parametri (opzionale)</label>
                         <div id="effect-params-builder">
-                            <p class="form-hint">Aggiungi parametri numerici o select per personalizzare l'effetto</p>
+                            <p class="form-hint">Aggiungi parametri numerici o select per personalizzare l'effetto. Per ora usa solo codice nelle funzioni generateJSON/generateText.</p>
                         </div>
-                        <button type="button" class="btn-add-param" id="btn-add-param">+ Aggiungi Parametro</button>
                     </div>
                     
                     <div class="form-group">
                         <label for="effect-generate-json">Funzione generateJSON (JavaScript) *</label>
-                        <textarea id="effect-generate-json" rows="4" required placeholder="return { type: 'draw', amount: params.amount || 1 };"></textarea>
+                        <textarea id="effect-generate-json" rows="4" required placeholder="(params) => ({ type: 'draw', amount: params.amount || 1 })"></textarea>
                         <p class="form-hint">La funzione riceve `params` e deve returnare un oggetto JSON</p>
                     </div>
                     
                     <div class="form-group">
                         <label for="effect-generate-text">Funzione generateText (JavaScript) *</label>
-                        <textarea id="effect-generate-text" rows="3" required placeholder="return `Pesca ${params.amount || 1} carta`;"></textarea>
+                        <textarea id="effect-generate-text" rows="3" required placeholder="(params) => `Pesca ${params.amount || 1} carta`"></textarea>
                         <p class="form-hint">La funzione riceve `params` e deve returnare una stringa di testo</p>
                     </div>
                     

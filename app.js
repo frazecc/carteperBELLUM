@@ -5,7 +5,7 @@
  */
 
 import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/main/+esm.js';
-import { getAllEffects, generateEffectJSON, generateEffectText, getEffectConfig, addEffect, deleteEffect } from './effects.js';
+import { getAllEffects, generateEffectJSON, generateEffectText, getEffectConfig, addNewEffect, deleteEffectById } from './effects.js';
 
 // ============================================
 // CONFIGURAZIONE SUPABASE
@@ -37,13 +37,29 @@ document.addEventListener('DOMContentLoaded', () => {
     initEffectsManagement();
     setupEventListeners();
     loadAllCards();
+    
+    // Inizializza stats row correttamente
+    const cardTypeSelect = document.getElementById('card-type');
+    const statsRow = document.getElementById('stats-row');
+    if (cardTypeSelect.value && ['monster', 'mostrissimo'].includes(cardTypeSelect.value)) {
+        statsRow.style.display = 'grid';
+    } else {
+        statsRow.style.display = 'none';
+    }
 });
 
 // ============================================
 // GESTIONE EFFETTI - SELECTOR
 // ============================================
 function initEffectSelector() {
+    // Forza reset agli effetti default se localStorage è vuoto
+    const stored = localStorage.getItem('bellum_effects');
+    if (!stored) {
+        console.log('Nessun effetto in localStorage, uso default');
+    }
+    
     populateEffectSelector();
+    renderEffectsManagementList();
 }
 
 function populateEffectSelector() {
@@ -103,7 +119,7 @@ function renderEffectParams(effectId) {
     });
 }
 
-function addEffect() {
+function addEffectToCard() {
     const effectSelect = document.getElementById('effect-type');
     const effectId = effectSelect.value;
     
@@ -174,7 +190,7 @@ function renderEffectsList() {
         const removeBtn = document.createElement('button');
         removeBtn.className = 'btn-remove';
         removeBtn.textContent = 'Rimuovi';
-        removeBtn.addEventListener('click', () => removeEffect(index));
+        removeBtn.addEventListener('click', () => removeEffectFromCard(index));
         
         item.appendChild(info);
         item.appendChild(removeBtn);
@@ -183,7 +199,7 @@ function renderEffectsList() {
     });
 }
 
-function removeEffect(index) {
+function removeEffectFromCard(index) {
     AppState.addedEffects.splice(index, 1);
     renderEffectsList();
 }
@@ -196,7 +212,6 @@ function initEffectsManagement() {
     
     // Form nuovo effetto
     document.getElementById('effect-form').addEventListener('submit', handleNewEffectSubmit);
-    document.getElementById('btn-add-param').addEventListener('click', addParamToEffect);
     
     // Modali
     document.getElementById('effect-modal-close').addEventListener('click', closeEffectModal);
@@ -207,7 +222,14 @@ function renderEffectsManagementList() {
     const container = document.getElementById('effects-list-container');
     container.innerHTML = '';
     
-    getAllEffects().forEach(effect => {
+    const effects = getAllEffects();
+    
+    if (effects.length === 0) {
+        container.innerHTML = '<p class="no-effects">Nessun effetto presente. Crea il primo!</p>';
+        return;
+    }
+    
+    effects.forEach(effect => {
         const card = document.createElement('div');
         card.className = 'effect-card';
         
@@ -249,13 +271,13 @@ function handleNewEffectSubmit(event) {
         id: document.getElementById('effect-id').value.trim(),
         name: document.getElementById('effect-name').value.trim(),
         description: document.getElementById('effect-description').value.trim(),
-        params: [], // TODO: Implementare builder parametri
+        params: [],
         generateJSON: document.getElementById('effect-generate-json').value.trim(),
         generateText: document.getElementById('effect-generate-text').value.trim()
     };
     
     try {
-        addEffect(newEffect);
+        addNewEffect(newEffect);
         alert(`Effetto "${newEffect.name}" creato con successo!`);
         
         // Reset form
@@ -268,11 +290,6 @@ function handleNewEffectSubmit(event) {
     } catch (error) {
         alert(`Errore: ${error.message}`);
     }
-}
-
-function addParamToEffect() {
-    // TODO: Implementare UI builder parametri
-    alert('Funzionalità in sviluppo: aggiungi parametri via codice JSON per ora');
 }
 
 function viewEffect(effectId) {
@@ -304,7 +321,7 @@ function confirmDeleteEffect() {
     if (!confirmed) return;
     
     try {
-        deleteEffect(AppState.selectedEffectId);
+        deleteEffectById(AppState.selectedEffectId);
         alert('Effetto eliminato!');
         
         closeEffectModal();
@@ -447,9 +464,11 @@ function setupEventListeners() {
     // Upload immagine
     document.getElementById('card-image').addEventListener('change', handleImageUpload);
     
-    // Mostra/nascondi stats in base al tipo
-    document.getElementById('card-type').addEventListener('change', (e) => {
-        const statsRow = document.getElementById('stats-row');
+    // Mostra/nascondi stats in base al tipo - FIX CORRETTO
+    const cardTypeSelect = document.getElementById('card-type');
+    const statsRow = document.getElementById('stats-row');
+    
+    cardTypeSelect.addEventListener('change', (e) => {
         const type = e.target.value;
         
         if (['monster', 'mostrissimo'].includes(type)) {
@@ -467,7 +486,7 @@ function setupEventListeners() {
     });
     
     // Aggiungi effetto
-    document.getElementById('btn-add-effect').addEventListener('click', addEffect);
+    document.getElementById('btn-add-effect').addEventListener('click', addEffectToCard);
     
     // Submit form
     document.getElementById('card-form').addEventListener('submit', handleFormSubmit);
@@ -511,16 +530,17 @@ async function handleFormSubmit(event) {
     messageEl.className = 'form-message';
     
     // Raccogli dati form
+    const cardType = document.getElementById('card-type').value;
     const cardData = {
         name: document.getElementById('card-name').value.trim(),
         faction_id: parseInt(document.getElementById('faction').value),
-        card_type: document.getElementById('card-type').value,
+        card_type: cardType,
         mana_cost: parseInt(document.getElementById('mana-cost').value) || 0,
-        attack: ['monster', 'mostrissimo'].includes(cardData.card_type) ? (parseInt(document.getElementById('attack').value) || null) : null,
-        hp: ['monster', 'mostrissimo'].includes(cardData.card_type) ? (parseInt(document.getElementById('hp').value) || null) : null,
+        attack: ['monster', 'mostrissimo'].includes(cardType) ? (parseInt(document.getElementById('attack').value) || null) : null,
+        hp: ['monster', 'mostrissimo'].includes(cardType) ? (parseInt(document.getElementById('hp').value) || null) : null,
         effect_text: document.getElementById('effect-text').value.trim(),
-        is_boss: false, // Rimosso
-        is_indrazzi: false // Rimosso (gestito come fazione 7)
+        is_boss: false,
+        is_indrazzi: false
     };
     
     // Verifica immagine
@@ -541,6 +561,8 @@ async function handleFormSubmit(event) {
     }
     
     try {
+        showMessage('Creazione carta in corso...', 'success');
+        
         // 1. Crea la carta (senza image_url)
         const { data: card, error: cardError } = await supabase
             .from('cards')
@@ -549,6 +571,7 @@ async function handleFormSubmit(event) {
             .single();
         
         if (cardError) {
+            console.error('Errore inserimento carta:', cardError);
             throw cardError;
         }
         
@@ -556,6 +579,7 @@ async function handleFormSubmit(event) {
         const factionCodes = ['CHI', 'INF', 'PES', 'BUL', 'GRO', 'CLO', 'IND'];
         const factionCode = factionCodes[cardData.faction_id - 1];
         
+        showMessage('Upload immagine...', 'success');
         const imageUrl = await uploadImageToSupabase(card.id, factionCode);
         
         if (!imageUrl) {
@@ -569,10 +593,11 @@ async function handleFormSubmit(event) {
             .eq('id', card.id);
         
         if (updateError) {
+            console.error('Errore aggiornamento image_url:', updateError);
             throw updateError;
         }
         
-        showMessage(`Carta "${card.name}" creata con successo! Immagine: WebP compresso.`, 'success');
+        showMessage(`✅ Carta "${card.name}" creata con successo! Immagine: WebP compresso.`, 'success');
         
         // Reset form
         document.getElementById('card-form').reset();
@@ -588,7 +613,7 @@ async function handleFormSubmit(event) {
         
     } catch (error) {
         console.error('Errore creazione carta:', error);
-        showMessage(`Errore: ${error.message}`, 'error');
+        showMessage(`❌ Errore: ${error.message}`, 'error');
     }
 }
 
@@ -651,33 +676,39 @@ async function loadAllCards() {
     const grid = document.getElementById('cards-grid');
     grid.innerHTML = '<p>Caricamento...</p>';
     
-    const { data, error } = await supabase
-        .from('cards')
-        .select(`
-            *,
-            factions (
-                name,
-                code,
-                color_hex
-            )
-        `)
-        .order('created_at', { ascending: false });
-    
-    if (error) {
-        console.error('Errore caricamento carte:', error);
-        grid.innerHTML = '<p>Errore nel caricamento carte</p>';
-        return;
+    try {
+        const { data, error } = await supabase
+            .from('cards')
+            .select(`
+                *,
+                factions (
+                    name,
+                    code,
+                    color_hex
+                )
+            `)
+            .order('created_at', { ascending: false });
+        
+        if (error) {
+            console.error('Errore caricamento carte:', error);
+            grid.innerHTML = `<p>Errore: ${error.message}</p>`;
+            return;
+        }
+        
+        AppState.allCards = data;
+        renderCardsGrid(data);
+        
+    } catch (err) {
+        console.error('Eccezione caricamento carte:', err);
+        grid.innerHTML = `<p>Errore: ${err.message}</p>`;
     }
-    
-    AppState.allCards = data;
-    renderCardsGrid(data);
 }
 
 function renderCardsGrid(cards) {
     const grid = document.getElementById('cards-grid');
     grid.innerHTML = '';
     
-    if (cards.length === 0) {
+    if (!cards || cards.length === 0) {
         grid.innerHTML = '<p>Nessuna carta trovata</p>';
         return;
     }
@@ -804,13 +835,21 @@ function getFactionCode(factionId) {
     return codes[factionId - 1] || 'IND';
 }
 
-// Esporta funzioni globali per debugging
+// ============================================
+// EXPORT GLOBALE PER DEBUGGING
+// ============================================
 window.CardCreator = {
     AppState,
     supabase,
     loadAllCards,
     updateCardPreview,
-    addEffect,
-    removeEffect,
-    compressImageToWebP
+    addEffectToCard,
+    removeEffectFromCard,
+    compressImageToWebP,
+    resetEffects: function() {
+        localStorage.removeItem('bellum_effects');
+        location.reload();
+    }
 };
+
+console.log('CardCreator esposto globalmente. Usa window.CardCreator in console.');

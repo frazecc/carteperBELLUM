@@ -325,14 +325,21 @@ const DEFAULT_EFFECTS = [
  * Ottieni tutti gli effetti (da localStorage o default)
  */
 export function getAllEffects() {
-    const stored = localStorage.getItem('bellum_effects');
-    if (stored) {
-        try {
-            return JSON.parse(stored);
-        } catch (e) {
-            console.error('Errore parsing effetti:', e);
+    try {
+        const stored = localStorage.getItem('bellum_effects');
+        if (stored) {
+            const parsed = JSON.parse(stored);
+            if (parsed && parsed.length > 0) {
+                return parsed;
+            }
         }
+    } catch (e) {
+        console.error('Errore parsing effetti da localStorage:', e);
     }
+    
+    // Se non ci sono effetti salvati, inizializza con i default
+    console.log('Inizializzo effetti default in localStorage');
+    localStorage.setItem('bellum_effects', JSON.stringify(DEFAULT_EFFECTS));
     return DEFAULT_EFFECTS;
 }
 
@@ -346,7 +353,7 @@ export function saveEffects(effects) {
 /**
  * Aggiungi un nuovo effetto
  */
-export function addEffect(effect) {
+export function addNewEffect(effect) {
     const effects = getAllEffects();
     
     // Controlla se ID esiste già
@@ -362,7 +369,7 @@ export function addEffect(effect) {
 /**
  * Elimina un effetto per ID
  */
-export function deleteEffect(effectId) {
+export function deleteEffectById(effectId) {
     const effects = getAllEffects();
     const filtered = effects.filter(e => e.id !== effectId);
     saveEffects(filtered);
@@ -414,6 +421,7 @@ export function generateEffectText(effectId, params) {
  */
 export function resetEffectsToDefault() {
     localStorage.removeItem('bellum_effects');
+    console.log('Effetti resettati ai default');
     return DEFAULT_EFFECTS;
 }
 
@@ -440,3 +448,6 @@ export function importEffects(jsonString) {
         throw e;
     }
 }
+
+// Esporta anche i default per uso esterno
+export { DEFAULT_EFFECTS };
