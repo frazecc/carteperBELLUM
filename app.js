@@ -4,7 +4,7 @@
  * CON COMPRESSIONE IMMAGINI WEBP E GESTIONE EFFETTI DINAMICI
  */
 
-import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/main/+esm.js';
+import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm';
 import { getAllEffects, generateEffectJSON, generateEffectText, getEffectConfig, addNewEffect, deleteEffectById } from './effects.js';
 
 // ============================================
@@ -32,6 +32,7 @@ const AppState = {
 // ============================================
 document.addEventListener('DOMContentLoaded', () => {
     console.log('Creatore Carte inizializzato');
+    console.log('Supabase client creato:', supabase ? 'OK' : 'ERRORE');
     
     initEffectSelector();
     initEffectsManagement();
@@ -66,7 +67,10 @@ function populateEffectSelector() {
     const effectSelect = document.getElementById('effect-type');
     effectSelect.innerHTML = '<option value="">Seleziona effetto...</option>';
     
-    getAllEffects().forEach(effect => {
+    const effects = getAllEffects();
+    console.log('Effetti caricati:', effects.length);
+    
+    effects.forEach(effect => {
         const option = document.createElement('option');
         option.value = effect.id;
         option.textContent = effect.name;
@@ -495,7 +499,7 @@ function setupEventListeners() {
     document.getElementById('btn-preview').addEventListener('click', (e) => {
         e.preventDefault();
         updateCardPreview();
-        alert('Anteprima aggiornata! Guarda la sezione a destra.');
+        alert('✅ Anteprima aggiornata! Guarda la sezione a destra.');
     });
     
     // Reset form
@@ -691,7 +695,7 @@ async function loadAllCards() {
         
         if (error) {
             console.error('Errore caricamento carte:', error);
-            grid.innerHTML = `<p>Errore: ${error.message}</p>`;
+            grid.innerHTML = `<p>Errore DB: ${error.message}</p>`;
             return;
         }
         
@@ -849,7 +853,13 @@ window.CardCreator = {
     resetEffects: function() {
         localStorage.removeItem('bellum_effects');
         location.reload();
+    },
+    testConnection: async function() {
+        const { data, error } = await supabase.from('factions').select('*').limit(1);
+        console.log('Test connessione Supabase:', data, error);
+        return { data, error };
     }
 };
 
-console.log('CardCreator esposto globalmente. Usa window.CardCreator in console.');
+console.log('✅ CardCreator esposto globalmente. Usa window.CardCreator in console.');
+console.log('✅ Supabase client:', supabase ? 'OK' : 'NULL');
